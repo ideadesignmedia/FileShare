@@ -8,7 +8,7 @@ out
 # code coverage
 coverage
 *.lcov
-
+dist
 # logs
 logs
 _.log
