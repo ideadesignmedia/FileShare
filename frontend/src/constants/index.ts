@@ -4,8 +4,8 @@ export const rtcOptions: RTCConfiguration = {
     {
       urls: "stun:stun.l.google.com:19302",
     },
-    //Disable TURN later so they just need to be on wifi or something
-    {
+    //Uncomment and add your own urls to use TURN server for better NAT traversal
+/*     {
       "urls": ['turn:turn.ideadesignmedia.com:3331'],
       username: 'IDM',
       credential: 'TURNME'
@@ -14,7 +14,7 @@ export const rtcOptions: RTCConfiguration = {
       "urls": ['turn:turn.ideadesignmedia.com:3332'],
       username: 'IDM',
       credential: 'TURNME'
-    }
+    } */
   ],
   iceTransportPolicy: "all"
 }
