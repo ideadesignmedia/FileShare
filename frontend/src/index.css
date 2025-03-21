@@ -1,0 +1,144 @@
+@import "tailwindcss";
+@layer base {
+   
+    @font-face {
+        font-family: GlacialIndifference;
+        font-weight: 500;
+        src: url(/GlacialIndifference-Regular.otf) format("opentype");
+      }
+      @font-face {
+        font-family: GlacialIndifference;
+        font-weight: 600;
+        src: url(/GlacialIndifference-Bold.otf) format("opentype");
+      }
+
+    * {
+        font-family: GlacialIndifference, Helvetica, Arial, serif;
+        @apply antialiased;
+        margin: 0;
+        padding: 0;
+    }
+    /* Root layout */
+    html {
+        height: 100vh;
+    }
+    body {
+        height: 100%;
+        max-height: 100%;
+        overflow: hidden;
+    }
+    
+    /* Body defaults */
+    body {
+        @apply bg-white text-black leading-relaxed flex flex-col relative;
+        margin: 0;
+        padding: 0;
+    }
+    
+    /* Full-height root container */
+    #root {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+        overflow-y: auto;
+        position: relative;
+    }
+    
+    /* Headings */
+    h1, h2, h3, h4, h5, h6 {
+        @apply font-bold text-gray-900;
+    }
+    
+    h1 { @apply text-4xl
+        sm:text-5xl
+        md:text-6xl;
+    }
+    h2 { 
+        @apply text-3xl
+        sm:text-4xl
+        md:text-5xl;
+    }
+    h3 { @apply text-2xl
+        sm:text-3xl
+        md:text-4xl;
+    }
+    h4 { @apply text-xl
+        sm:text-2xl;
+    }
+    h5 { @apply text-lg
+        sm:text-xl;
+     }
+    h6 { @apply text-base 
+        sm:text-lg; 
+    }
+    
+    /* Paragraphs */
+    p {
+        @apply text-base text-gray-700 leading-relaxed;
+    }
+    
+    /* Links */
+    a {
+        @apply text-blue-600 hover:underline hover:text-blue-700 transition-colors;
+    }
+    
+    /* Buttons */
+    button {
+        @apply px-4
+        py-2
+        font-medium
+        rounded-lg
+        transition-all
+        duration-300
+        focus:outline-none
+        focus:ring-2 
+        focus:ring-blue-500 
+        disabled:opacity-50 
+        disabled:cursor-not-allowed;
+        background: white;
+        color: black;
+        border: 2px solid black;
+    }
+    button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    button:not(:disabled) {
+        cursor: pointer;
+    }
+    button:not(:disabled):hover {
+        background: black;
+        color: white;
+    }
+    
+    /* Form Inputs */
+    input, textarea, select {
+        @apply w-full
+        px-3
+        py-2 
+        border
+         border-gray-300 
+         rounded-lg 
+         focus:outline-none
+         focus:ring-2 
+         focus:ring-blue-500 
+         transition;
+    }
+    
+    /* Remove default list styles */
+    ul, ol {
+        @apply list-none
+        p-0;
+    }
+    
+    /* Images */
+    img {
+        @apply max-w-full
+        h-auto;
+    }
+}
