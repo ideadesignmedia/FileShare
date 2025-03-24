@@ -1,0 +1,17 @@
+name: Notify Server on Commit
+
+on:
+  push:
+    branches:
+      - main
+jobs:
+  notify_main:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Notification to Server (Main)
+        run: |
+          curl -X POST https://updates.ideadesignmedia.com/update \
+          -H "Authorization: Bearer ${{ secrets.UPDATE_SERVER_TOKEN }}" \
+          -H "Content-Type: application/json" \
+          -d "{\"repository\": \"${{ github.repository }}\", \"commit\": \"${{ github.sha }}\", \"branch\": \"${{ github.ref }}\"}"
