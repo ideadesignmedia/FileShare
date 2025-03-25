@@ -3,10 +3,11 @@ import Button from './components/Button'
 import { useP2PContext } from './context/P2PContext'
 import Peer from './components/Peer'
 import Header from './components/Header'
+import { useAppContext } from './context/AppContext'
 
 
 export default function Home() {
-
+    const {state} = useAppContext()
     const { createPeerConnection, availablePeers, connectedPeers, selectedPeer, setSelectedPeer } = useP2PContext()
 
     return <div className="flex flex-col w-full items-center justify-start relative min-h-full">
@@ -15,7 +16,7 @@ export default function Home() {
             <h4>Available Peers</h4>
             {availablePeers.length ? availablePeers.map((peer) => {
                 return <div key={peer} className='flex gap-2 items-center justify-center'>
-                    <p>{peer}</p>
+                    <p>{state.peers.find(peerD => peerD.deviceId === peer)?.deviceName || peer}</p>
                     <Button variant='outline' onClick={() => {
                         createPeerConnection(peer, true)
                         setSelectedPeer(peer)

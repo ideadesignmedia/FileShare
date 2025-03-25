@@ -4,6 +4,7 @@ import Button from './Button'
 import { useAppContext } from '../context/AppContext'
 import { formatBytes } from '../utils/format'
 import { estimateZipSize, streamFolderToZip } from '../utils/zip'
+import device, { deviceTypes } from '../constants/device-browser'
 
 function FileTransferProgress({ peer, progress, fileName, fileId, isSending, close }: { peer: string, progress: number, fileName: string, fileId: string, isSending?: boolean, close: (fileId: string) => void }) {
     const { pauseTransfer, resumeTransfer, cancelTransfer, cancelUpload } = useP2PContext()
@@ -28,12 +29,13 @@ function FileTransferProgress({ peer, progress, fileName, fileId, isSending, clo
 
 export default React.memo(function Peer({ peer }: { peer: string }) {
     const [sending, setSending] = React.useState(false)
-    const { alert, flash } = useAppContext()
+    const { state, alert, flash } = useAppContext()
     const { requestFileTransfer, disconnectPeerConnection, selectedPeer, createPeerConnection, sentFileProgress, receivedFileProgress, connectedPeers } = useP2PContext()
     const fileRef = React.useRef<HTMLInputElement>(null)
     const [clearedFiles, setClearedFiles] = React.useState<string[]>([])
     const [selectedFiles, setSelectedFiles] = React.useState<File[]>([])
     const isConnected = useMemo(() => connectedPeers.some((p) => p === peer), [connectedPeers, peer])
+    const name = useMemo(() => state.peers.find(peerD => peerD.deviceId === peer)?.deviceName || peer,[peer, state])
     const handleFiles = useCallback(async () => {
         if (!isConnected) {
             flash('Not connected to peer')
@@ -103,7 +105,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         className='flex flex-col w-full gap-2 items-center justify-center p-2 h-full'>
-        <h3>{peer}</h3>
+        <h3>{name}</h3>
         {receivedProgress.length ? (<div className='flex flex-col gap-2 w-full'>
             <h3>Received Files</h3>
             <div className='flex flex-col gap-2 w-full'>
@@ -150,12 +152,12 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
                         }
                     }
                     }>Select Files</button>
-                    <button disabled={sending} onClick={() => {
+                    {device.deviceType !== deviceTypes.Desktop && <button disabled={sending} onClick={() => {
                         if (fileRef.current) {
                             fileRef.current.setAttribute('webkitdirectory', 'true');
                             fileRef.current.click()
                         }
-                    }}>Send Folder</button>
+                    }}>Send Folder</button>}
                 </>) : <div>
                     <p>Sending...</p>
                 </div>}
