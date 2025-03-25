@@ -7,10 +7,14 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start-dist-updater": "node ./scripts/update-dist.cjs",
+    "test-dist-updater": "node ./scripts/test-dist.cjs",
+    "send-dist": "node ./scripts/send-dist.cjs"
   },
   "dependencies": {
     "@esbuild-plugins/node-globals-polyfill": "^0.2.3",
+    "@ideadesignmedia/config.js": "^1.0.2",
     "@tailwindcss/vite": "^4.0.14",
     "@zip.js/zip.js": "^2.7.57",
     "bson": "^6.10.3",

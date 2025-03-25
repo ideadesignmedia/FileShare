@@ -1,0 +1,5 @@
+{
+    "PORT": 9900,
+    "AUTH": "Whatever",
+    "DIST_UPDATER": "localhost"
+}

@@ -29,7 +29,7 @@ function FileTransferProgress({ peer, progress, fileName, fileId, isSending, clo
 export default React.memo(function Peer({ peer }: { peer: string }) {
     const [sending, setSending] = React.useState(false)
     const { alert, flash } = useAppContext()
-    const { requestFileTransfer, disconnectPeerConnection, createPeerConnection, sentFileProgress, receivedFileProgress, connectedPeers } = useP2PContext()
+    const { requestFileTransfer, disconnectPeerConnection, selectedPeer, createPeerConnection, sentFileProgress, receivedFileProgress, connectedPeers } = useP2PContext()
     const fileRef = React.useRef<HTMLInputElement>(null)
     const [clearedFiles, setClearedFiles] = React.useState<string[]>([])
     const [selectedFiles, setSelectedFiles] = React.useState<File[]>([])
@@ -98,6 +98,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
     const clearFile = useCallback((fileId: string) => {
         setClearedFiles((prev) => [...prev, fileId])
     }, [])
+    if (peer !== selectedPeer) return
     return <div
         onDrop={handleDrop}
         onDragOver={handleDragOver}
