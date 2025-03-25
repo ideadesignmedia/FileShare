@@ -152,7 +152,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
                         }
                     }
                     }>Select Files</button>
-                    {device.deviceType !== deviceTypes.Desktop && <button disabled={sending} onClick={() => {
+                    {device.deviceType === deviceTypes.Desktop && <button disabled={sending} onClick={() => {
                         if (fileRef.current) {
                             fileRef.current.setAttribute('webkitdirectory', 'true');
                             fileRef.current.click()
