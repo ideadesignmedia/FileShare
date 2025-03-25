@@ -124,7 +124,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
                 {selectedFiles.map((file, i) => <li key={i} className='flex gap-1 items-center justify-center'>
                     <div className='flex flex-col flex-grow'>
                         <h5>{file.name}</h5>
-                        <p>{formatBytes(file.size)} bytes</p>
+                        <p>{formatBytes(file.size, 2)}</p>
                     </div>
                     <button onClick={() => {
                         setSelectedFiles((prev) => prev.filter((f) => f !== file))
