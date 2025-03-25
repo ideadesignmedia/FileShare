@@ -1,15 +1,13 @@
 require('@ideadesignmedia/config.js')
 const http = require('http')
 const fs = require('fs')
-
-const request = http.request({
-    host: 'localhost',
-    path: '/test-dist.js',
+const path = require('path')
+const provider = new URL(process.env.DIST_UPDATER).protocol === 'https:' ? https : http
+const request = provider.request(process.env.DIST_UPDATER + path.baseName(__filename), {
     method: 'POST',
     headers: {
         'authorization': `Bearer ${process.env.AUTH}`
-    },
-    port: process.env.PORT
+    }
 }, (res) => {
     if (res.statusCode !== 200) {
         console.error('Failed request')

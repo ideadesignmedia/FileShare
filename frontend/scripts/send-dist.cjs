@@ -1,11 +1,15 @@
 require('@ideadesignmedia/config.js')
 const http = require('http')
+const https = require('https')
 const fs = require('fs')
+const {URL} = require('url')
 const path = require('path')
 const dist = path.join(process.cwd(), 'dist')
 const sendFile = (pathname) => {
     return new Promise((resolve, reject) => {
-        const request = http.request(process.env.DIST_UPDATER + pathname.replace(dist, ''), {
+        const {protocol} = new URL(process.env.DIST_UPDATER)
+        const provider = protocol === 'https:' ? https : http
+        const request = provider.request(process.env.DIST_UPDATER + pathname.replace(dist, ''), {
             method: 'POST',
             headers: {
                 'authorization': `Bearer ${process.env.AUTH}`
