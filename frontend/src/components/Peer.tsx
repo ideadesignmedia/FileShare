@@ -88,7 +88,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
             progress,
             fileId
         }))
-    }, [receivedFileProgress, peer])
+    }, [receivedFileProgress, peer, clearedFiles])
     const sentProgress = useMemo(() => {
         if (!sentFileProgress[peer]) return []
         return Object.entries(sentFileProgress[peer]).filter(([fileId]) => !clearedFiles.includes(fileId)).map(([fileId, { name: fileName, progress }]) => ({
@@ -96,7 +96,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
             progress,
             fileId
         }))
-    }, [sentFileProgress, peer])
+    }, [sentFileProgress, peer, clearedFiles])
     const clearFile = useCallback((fileId: string) => {
         setClearedFiles((prev) => [...prev, fileId])
     }, [])
