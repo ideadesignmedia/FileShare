@@ -81,7 +81,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
     const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => e.preventDefault(), []);
     const receivedProgress = useMemo(() => {
         if (!receivedFileProgress[peer]) return []
-        return Object.entries(receivedFileProgress[peer]).map(([fileId, { name: fileName, progress }]) => ({
+        return Object.entries(receivedFileProgress[peer]).filter(([fileId]) => !clearedFiles.includes(fileId)).map(([fileId, { name: fileName, progress }]) => ({
             fileName,
             progress,
             fileId
@@ -89,7 +89,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
     }, [receivedFileProgress, peer])
     const sentProgress = useMemo(() => {
         if (!sentFileProgress[peer]) return []
-        return Object.entries(sentFileProgress[peer]).map(([fileId, { name: fileName, progress }]) => ({
+        return Object.entries(sentFileProgress[peer]).filter(([fileId]) => !clearedFiles.includes(fileId)).map(([fileId, { name: fileName, progress }]) => ({
             fileName,
             progress,
             fileId
@@ -102,7 +102,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
     return <div
         onDrop={handleDrop}
         onDragOver={handleDragOver}
-        className='flex flex-col w-full gap-2 items-center justify-center my-2'>
+        className='flex flex-col w-full gap-2 items-center justify-center p-2 h-full'>
         <h3>{peer}</h3>
         {receivedProgress.length ? (<div className='flex flex-col gap-2 w-full'>
             <h3>Received Files</h3>

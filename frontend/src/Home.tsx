@@ -7,25 +7,24 @@ import Header from './components/Header'
 
 export default function Home() {
 
-    const { createPeerConnection, availablePeers, connectedPeers } = useP2PContext()
+    const { createPeerConnection, availablePeers, connectedPeers, selectedPeer, setSelectedPeer } = useP2PContext()
 
     return <div className="flex flex-col w-full items-center justify-start relative min-h-full">
         <Header/>
-        <div className="w-full flex flex-col gap-2 items-center justify-center">
+        {(!selectedPeer || !connectedPeers.includes(selectedPeer)) && <div className="w-full flex flex-col gap-2 items-center justify-center">
             <h4>Available Peers</h4>
             {availablePeers.length ? availablePeers.map((peer) => {
                 return <div key={peer} className='flex gap-2 items-center justify-center'>
                     <p>{peer}</p>
                     <Button variant='outline' onClick={() => {
                         createPeerConnection(peer, true)
-                        
+                        setSelectedPeer(peer)
                     }}>Connect</Button>
                 </div>
             }) : <span>No peers available</span>}
-        </div>
-        <div className="w-full flex flex-col gap-2 items-center justify-center">
-            <h4>Connected Peers</h4>
-            {connectedPeers.length ? connectedPeers.map((peer) => <Peer key={peer} peer={peer}/>) : <span>No peers connected</span>}
-        </div>
+        </div>}
+        {connectedPeers.length > 0 && <div className="w-full grow flex flex-col gap-2 items-center justify-center">
+            {connectedPeers.map((peer) => (<Peer key={peer} peer={peer}/>))}
+        </div>}
     </div>
 }

@@ -143,7 +143,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         if (disconnectionCount.current[deviceId] > 3) {
             requestedPeers.current.delete(deviceId);
             disconnectPeerConnection(deviceId);
-            disconnectionCount.current[deviceId] = 0;
             return
         }
         requestedPeers.current.add(deviceId);
@@ -198,8 +197,12 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                     sendMessage(deviceId, { type: "webrtc-offer", data: offer });
                 });
             }).catch(console.error);
+        } else {
+            setSelectedPeer(peer => {
+                if (peer !== deviceId) return deviceId
+                return peer
+            })
         }
-
         return peerConnection;
     }, []);
 
@@ -226,6 +229,11 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             delete updated[deviceId];
             return updated;
         });
+
+        requestedPeers.current.delete(deviceId)
+        if (disconnectionCount.current[deviceId]) {
+            delete disconnectionCount.current[deviceId]
+        }
 
         if (receivedFiles.current[deviceId]) {
             delete receivedFiles.current[deviceId];
@@ -891,6 +899,13 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
     }, []);
     const connectedPeers = useMemo(() => Object.keys(rtcPeers), [rtcPeers])
     const availablePeers = useMemo(() => state.peers.filter(({ deviceId }) => !rtcPeers[deviceId]).map(peer => peer.deviceId), [state.peers, rtcPeers])
+    useEffect(() => {
+        if (!connectedPeers.includes(selectedPeer) && !availablePeers.includes(selectedPeer)) {
+            setSelectedPeer('')
+        } else if (!connectedPeers.includes(selectedPeer) && availablePeers.includes(selectedPeer) && !requestedPeers.current.has(selectedPeer)) {
+            createPeerConnection(selectedPeer, true)
+        }
+    }, [selectedPeer, connectedPeers, availablePeers])
     return (
         <P2PContext.Provider value={{
             selectedPeer,

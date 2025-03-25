@@ -1,4 +1,4 @@
-import React, { useReducer, createContext, useContext, ReactNode, Dispatch } from 'react';
+import React, { useReducer, createContext, useContext, ReactNode, Dispatch, useEffect } from 'react';
 import { SocketProvider } from './SocketContext';
 import EventEmitter from '../utils/event-emitter';
 import { deviceId } from '../constants';
@@ -36,6 +36,15 @@ type Action = {
         username: string,
         password: string
     } | null,
+} | {
+    type: 'set-name',
+    value: string
+} | {
+    type: 'update-name',
+    value: {
+        deviceId: string,
+        deviceName: string
+    }
 }
 
 export type Peer = {
@@ -50,14 +59,16 @@ interface AppState {
     credentials: {
         username: string,
         password: string
-    } | null
+    } | null,
+    deviceName: string
 }
 const initialState: AppState = {
     token: localStorage.getItem('token') || '',
     peers: [],
     loading: false,
     loaded: false,
-    credentials: null
+    credentials: null,
+    deviceName: localStorage.getItem('deviceName') || ''
 }
 function appReducer(state: AppState, action: Action): AppState {
     switch (action.type) {
@@ -75,6 +86,16 @@ function appReducer(state: AppState, action: Action): AppState {
             return { ...state, peers: [...state.peers, action.peer] };
         case 'disconnection':
             return { ...state, peers: state.peers.filter(p => p.deviceId !== action.peer.deviceId) };
+        case 'set-name': 
+            return {...state, deviceName: action.value}
+        case 'update-name':
+            return {...state, peers: state.peers.map(peer => {
+                if (peer.deviceId === action.value.deviceId) {
+                    return {...peer, deviceName: action.value.deviceName}
+                } else {
+                    return peer
+                }
+            })}
         default:
             return state;
     }
@@ -107,6 +128,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const flash = (message: string) => {
         window.alert(message)
     }
+    useEffect(() => {
+        localStorage.setItem('deviceName', state.deviceName)
+    }, [state.deviceName])
     return (
         <AppContext.Provider value={{ state, dispatch, emit, confirm, alert, flash }}>
             <SocketProvider>

@@ -5,6 +5,7 @@ import { BroadcastAllMessage, BroadcastMessage } from '../../shared/ClientMessag
 
 const authTimeouts = new Map<WebSocket, any>()
 const authenticated = new Map<WebSocket, Map<number, Set<string>>>()
+const deviceNames = new Map<string, string>()
 const server = new WebSocketServer({ port: parseInt(process.env.PORT as string) })
 server.on('listening', () => {
     console.log('Server is listening on port', process.env.PORT)
@@ -17,6 +18,9 @@ server.on('connection', (ws) => {
         const authenticatedServer = authenticated.get(ws)
         if (authenticatedServer && authenticatedServer.size) {
             const disconnectedUsers = Array.from(authenticatedServer.entries()).flatMap(([id, devices]) => Array.from(devices).map((device) => ({ id, deviceId: device })))
+            disconnectedUsers.forEach(user => {
+                deviceNames.delete(user.deviceId)
+            })
             authenticated.forEach((map, socket) => {
                 if (socket !== ws && map.has(disconnectedUsers[0].id)) {
                     for (let i = 0; i < disconnectedUsers.length; i++) {
@@ -62,11 +66,12 @@ server.on('connection', (ws) => {
                 break
             }
             case 'name-change': {
-                const { id: userId } = data.data
+                const { id: userId, deviceId, deviceName } = data.data
                 if (!userId) {
                     console.error('Invalid userId')
                     return
                 }
+                deviceNames.set(deviceId, deviceName)
                 authenticated.forEach((map, socket) => {
                     if (ws !== socket && map.has(userId)) {
                         socket.send(JSON.stringify(data as ServerChangeName))
@@ -80,11 +85,12 @@ server.on('connection', (ws) => {
                     console.error('Invalid requestId or userId')
                     return
                 }
-                const devices: { deviceId: string, id: number }[] = []
+                const devices: { deviceId: string, id: number, deviceName: string }[] = []
                 authenticated.forEach((map) => {
                     if (map.has(userId)) {
                         map.get(userId)?.forEach((device) => {
-                            devices.push({ deviceId: device, id: userId })
+                            const deviceName = deviceNames.get(device) || ''
+                            devices.push({ deviceId: device, id: userId, deviceName })
                         })
                     }
                 })
@@ -125,6 +131,7 @@ server.on('connection', (ws) => {
                     console.error('Invalid userId or deviceId')
                     return
                 }
+                deviceNames.delete(deviceId)
                 authenticated.forEach((map, socket) => {
                     if (map.has(userId)) {
                         const user = map.get(userId)
@@ -143,11 +150,12 @@ server.on('connection', (ws) => {
                 break
             }
             case 'connection': {
-                const { id: userId, deviceId } = data.data
+                const { id: userId, deviceId, deviceName } = data.data
                 if (!userId || !deviceId) {
                     console.error('Invalid userId or deviceId')
                     return
                 }
+                deviceNames.set(deviceId, deviceName)
                 authenticated.forEach((map, socket) => {
                     if (socket === ws) {
                         if (!map.has(userId)) {
@@ -171,11 +179,12 @@ server.on('connection', (ws) => {
             case 'connections': {
                 const connections = data.data
                 for (let i = 0; i < connections.length; i++) {
-                    const { id: userId, deviceId } = connections[i]
+                    const { id: userId, deviceId, deviceName } = connections[i]
                     if (!userId || !deviceId) {
                         console.error('Invalid userId or deviceId')
                         return
                     }
+                    deviceNames.set(deviceId, deviceName)
                     authenticated.forEach((map, socket) => {
                         if (ws === socket) {
                             if (!map.has(userId)) {

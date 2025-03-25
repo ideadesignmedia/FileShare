@@ -36,7 +36,7 @@ export interface NameChangeMessage extends BaseServerMessage {
     type: "name-change";
     data: {
         id: number;
-        deviceId?: string;
+        deviceId: string;
         deviceName: string;
     };
 }

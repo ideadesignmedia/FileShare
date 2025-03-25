@@ -123,6 +123,7 @@ export const connectToServer = () => {
         server = null
         if (serverStatus.serverReconnect) clearTimeout(serverStatus.serverReconnect)
         serverStatus.serverReconnect = setTimeout(() => {
+            serverStatus.serverReconnect = null
             server = connectToServer()
         }, 1000 + serverStatus.disconnections * 3000)
     })
@@ -133,6 +134,7 @@ export const connectToServer = () => {
         serverStatus.connected = false
         if (serverStatus.serverReconnect) clearTimeout(serverStatus.serverReconnect)
         serverStatus.serverReconnect = setTimeout(() => {
+            serverStatus.serverReconnect = null
             server = connectToServer()
         }, 1000 + serverStatus.disconnections * 3000)
     })

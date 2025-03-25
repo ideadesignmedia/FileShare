@@ -5,7 +5,9 @@ import { useAppContext } from './AppContext';
 import { ServerMessage } from '../../../shared/ServerMessageTypes';
 import { ClientMessage } from '../../../shared/ClientMessageTypes';
 
-type SocketContextType = ReturnType<typeof useWS>;
+type SocketContextType = ReturnType<typeof useWS> & {
+    setDeviceName: (name: string) => void
+};
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 export const SocketProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
     const { state, dispatch, emit } = useAppContext();
@@ -24,6 +26,7 @@ export const SocketProvider: React.FC<React.PropsWithChildren<{}>> = ({ children
                     localStorage.setItem('token', data.data.token);
                     setAuthorized(true);
                     dispatch({ type: 'set-token', token: data.data.token });
+                    dispatch({type: 'set-name', value: data.data.deviceName || ''})
                     send({ type: 'devices', requestId: 'devices' + Date.now() });
                 }
                 break;
@@ -52,6 +55,13 @@ export const SocketProvider: React.FC<React.PropsWithChildren<{}>> = ({ children
             }
             case 'broadcast-all': {
                 emit('all', data.data);
+                break
+            }
+            case 'name-change': {
+                dispatch({type: 'update-name', value: {
+                    deviceId: data.data.deviceId!,
+                    deviceName: data.data.deviceName    
+                }})
                 break
             }
             case 'pong': break
@@ -95,9 +105,13 @@ export const SocketProvider: React.FC<React.PropsWithChildren<{}>> = ({ children
         dispatch({ type: 'set-peers', peers: [] })
     }, [])
     const ws = useWS(wsUrl, onSocketMessage, onSocketOpen, onSocketClose, !Boolean(state.token));
-    const { send, setAuthorized } = ws
+    const { send, setAuthorized, authorized, close, open, ws: socket } = ws
+    const setDeviceName = useCallback((name: string) => {
+        dispatch({type: 'set-name', value: name})
+        send({type: 'name-change', data: name})
+    }, [send])
     return (
-        <SocketContext.Provider value={ws}>
+        <SocketContext.Provider value={{send, setAuthorized, authorized, close, open, ws: socket, setDeviceName }}>
             {children}
         </SocketContext.Provider>
     );

@@ -39,7 +39,8 @@ export interface ServerPing {
 export interface ServerConnections {
     type: 'connections', data: {
         id: number,
-        deviceId: string
+        deviceId: string,
+        deviceName: string
     }[]
 }
 
