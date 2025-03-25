@@ -5,6 +5,7 @@ import { rtcOptions } from '../constants';
 import { saveChunkToIndexedDB, deleteFileFromIndexedDB, createIndexedDBChunkStream } from '../utils/indexed-db';
 import { BSON } from 'bson';
 import { compressSync as brotliCompress, decompressSync as brotliDecompress, Deflate, Inflate } from "fflate";
+import { formatBytes } from '../utils/format';
 
 const maxMessageSize = 65536 - 300;
 const maxBufferAmount = 16 * 1024 * 1024 - (maxMessageSize + 300)
@@ -794,7 +795,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         type: data.data.type
                     };
 
-                    confirm(`Accept file "${name}" (${size} bytes) from ${deviceId}?`, (accepted) => {
+                    confirm(`Accept file "${name}" (${formatBytes(size, 2)}) from ${deviceId}?`, (accepted) => {
                         if (accepted) {
                             sendMessage(deviceId, { type: "file-accept", fileId, requestId: data.requestId });
                         } else {
