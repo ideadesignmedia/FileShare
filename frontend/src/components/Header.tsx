@@ -32,15 +32,18 @@ const Header: React.FC<HeaderProps> = ({ }) => {
          w-full
          relative
          max-w-full
+         gap-2
          ">
 
                 <div className="flex flex-shrink-0 items-center gap-2">
-                    <h3 className="text-xl font-bold">FileShare</h3>
+                    <h3 className="text-xl font-bold text-white">FileShare</h3>
                 </div>
-                <div className="flex flex-grow items-center justify-end flex-wrap gap-1">
-                    <DeviceName/>
-                    <PeerSelector/>
-                    <LogOut/>
+                <div className="flex flex-grow items-center justify-end flex-wrap gap-2">
+                    <div className='grow'>
+                        <DeviceName />
+                    </div>
+                    <PeerSelector />
+                    <LogOut />
                 </div>
             </div>
         </header>

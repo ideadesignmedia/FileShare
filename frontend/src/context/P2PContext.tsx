@@ -15,7 +15,7 @@ export type P2PContextType = {
     sendFile: (deviceId: string, file: File, fileId: string) => void;
     createPeerConnection: (deviceId: string, isInitiator: boolean) => RTCPeerConnection | undefined;
     disconnectPeerConnection: (deviceId: string) => void;
-    requestFileTransfer: (deviceId: string, file: File | ReadableStream, fileInfo?: {type: string, name: string, size: number}) => Promise<() => void>;
+    requestFileTransfer: (deviceId: string, file: File | ReadableStream, fileInfo?: { type: string, name: string, size: number }) => Promise<() => void>;
     pauseTransfer: (deviceId: string, fileId: string) => void;
     resumeTransfer: (deviceId: string, fileId: string) => void;
     cancelTransfer: (deviceId: string, fileId: string) => void;
@@ -272,7 +272,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             onDataChannelMessage(deviceId, event.data);
         }
         channel.onerror = (error) => {
-            console.error(`❌ DataChannel error with ${deviceId}:`, error);
+            console.error(`DataChannel error with ${deviceId}:`, error);
         };
     }, [])
 
@@ -403,7 +403,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 nextChannelIndex.current[deviceId] = 0;
             }
             const updateProgress = () => {
-                setSentFileProgress(prev => ({
+                if (sentChunks % 5 === 0) setSentFileProgress(prev => ({
                     ...prev,
                     [deviceId]: {
                         ...(prev[deviceId] || {}),
@@ -547,7 +547,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
 
     const downloadFile = useCallback((deviceId: string, fileId: string) => {
         const fileInfo = receivedFiles.current[deviceId][fileId];
-        //console.log('Downloading the file...', fileInfo.name, fileInfo.type);
         if (fileInfo.finalized) return console.warn(`File "${fileInfo.name}" already finalized.`);
         fileInfo.finalized = true
         setReceivedFileProgress(prev => {
@@ -568,7 +567,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            //console.log(`✅ File "${fileInfo.name}" received successfully from ${deviceId}`);
             delete receivedFiles.current[deviceId][fileId];
             if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
         }
@@ -679,17 +677,18 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         receivedChunks.current[deviceId][fileId].push({ chunk, index: message.chunkNumber });
                         const receivedSize = receivedChunks.current[deviceId][fileId]
                             .reduce((acc, { chunk }) => acc + (chunk instanceof ArrayBuffer ? chunk.byteLength : new Blob([chunk]).size), 0);
-                        const progress = parseFloat(Math.min(100, (receivedSize / fileInfo.size) * 100).toFixed(2));
                         fileInfo.progress += receivedSize;
-                        setReceivedFileProgress(prev => ({
-                            ...prev,
-                            [deviceId]: prev[deviceId] ? {
-                                ...prev[deviceId],
-                                [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name }
-                            } : { [fileId]: { progress, name: fileInfo.name } }
-                        }));
+                        if (fileInfo.chunksReceived % 5 === 0) {
+                            const progress = parseFloat(Math.min(100, (receivedSize / fileInfo.size) * 100).toFixed(2));
+                            setReceivedFileProgress(prev => ({
+                                ...prev,
+                                [deviceId]: prev[deviceId] ? {
+                                    ...prev[deviceId],
+                                    [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name }
+                                } : { [fileId]: { progress, name: fileInfo.name } }
+                            }));
+                        }
                         if (fileInfo.chunkCount && fileInfo.chunksReceived === fileInfo.chunkCount) {
-                            //console.log("Received all chunks, downloading file...")
                             downloadFile(deviceId, fileId)
                         }
                     } else {
@@ -701,16 +700,17 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         }
                         saveChunkToIndexedDB(fileId, message.chunkNumber, chunk).then(() => {
                             fileInfo.progress += chunk.byteLength;
-                            const progress = parseFloat(Math.min(100, (fileInfo.progress / fileInfo.size) * 100).toFixed(2));
-                            setReceivedFileProgress(prev => ({
-                                ...prev,
-                                [deviceId]: prev[deviceId] ? {
-                                    ...prev[deviceId],
-                                    [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name }
-                                } : { [fileId]: { progress, name: fileInfo.name } }
-                            }));
+                            if (fileInfo.chunksReceived % 10 === 0) {
+                                const progress = parseFloat(Math.min(100, (fileInfo.progress / fileInfo.size) * 100).toFixed(2));
+                                setReceivedFileProgress(prev => ({
+                                    ...prev,
+                                    [deviceId]: prev[deviceId] ? {
+                                        ...prev[deviceId],
+                                        [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name }
+                                    } : { [fileId]: { progress, name: fileInfo.name } }
+                                }));
+                            }
                             if (fileInfo.chunkCount && fileInfo.chunksReceived === fileInfo.chunkCount) {
-                                //console.log("Received all chunks, downloading file...")
                                 downloadFile(deviceId, fileId)
                             }
                         }).catch(e => {
@@ -739,14 +739,12 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 break;
             }
             case 'cancel-upload': {
-                // Cleanup
                 delete receivedChunks.current[deviceId][fileId];
                 delete receivedFiles.current[deviceId][fileId];
 
                 if (Object.keys(receivedChunks.current[deviceId]).length === 0) delete receivedChunks.current[deviceId];
                 if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
 
-                // Reset progress
                 setReceivedFileProgress(prev => {
                     if (!prev[deviceId]) return prev;
                     if (!prev[deviceId][fileId]) return prev;
@@ -768,7 +766,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 const fileInfo = receivedFiles.current[deviceId][fileId];
                 fileInfo.chunkCount = message.totalChunks;
                 if (fileInfo.chunksReceived === fileInfo.chunkCount) {
-                    //console.log("File ended", fileInfo.name, fileInfo.type, 'downloading', fileInfo.chunksReceived, 'of', fileInfo.chunkCount);
                     downloadFile(deviceId, fileId)
                 } else {
                     console.warn(`File transfer incomplete for ${fileInfo.name}. Expected ${fileInfo.chunkCount} chunks, received ${fileInfo.chunksReceived}. Waiting to finish...`);
