@@ -2,6 +2,7 @@ import React, { Suspense, useState } from 'react'
 import { useAppContext } from './context/AppContext'
 import { useSocket } from './context/SocketContext'
 import { P2PProvider } from './context/P2PContext'
+import LoadingPage from './components/LoadingPage'
 
 const Home = React.lazy(() => import('./Home'))
 
@@ -12,9 +13,7 @@ function App() {
   if (!state.loaded) {
     if (state.loading || state.token) {
       return (
-        <div className="loading">
-          <h1>Loading...</h1>
-        </div>
+        <LoadingPage/>
       )
     } else {
       return (
@@ -35,7 +34,7 @@ function App() {
   }
   return (
     <P2PProvider>
-      <Suspense fallback={<div>Loading...</div>}>
+      <Suspense fallback={<LoadingPage/>}>
         <Home/>
       </Suspense>
     </P2PProvider>

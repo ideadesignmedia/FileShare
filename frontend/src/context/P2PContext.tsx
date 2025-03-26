@@ -795,7 +795,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         type: data.data.type
                     };
 
-                    confirm(`Accept file "${name}" (${formatBytes(size, 2)}) from ${deviceId}?`, (accepted) => {
+                    confirm(`Accept file "${name}" (${formatBytes(size, 2)}) from ${state.peers.find((({deviceId: d}) => d === deviceId))?.deviceName || deviceId}?`, (accepted) => {
                         if (accepted) {
                             sendMessage(deviceId, { type: "file-accept", fileId, requestId: data.requestId });
                         } else {
@@ -833,7 +833,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                     break;
             }
         }
-    }, [createPeerConnection]);
+    }, [createPeerConnection, state.peers]);
 
     const onBroadcast = useCallback((message: PeerBroadCastMessage) => {
 
@@ -902,6 +902,8 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             setSelectedPeer('')
         } else if (!connectedPeers.includes(selectedPeer) && availablePeers.includes(selectedPeer) && !requestedPeers.current.has(selectedPeer)) {
             createPeerConnection(selectedPeer, true)
+        } else if (!selectedPeer && connectedPeers.length) {
+            setSelectedPeer(connectedPeers[0])
         }
     }, [selectedPeer, connectedPeers, availablePeers])
     return (

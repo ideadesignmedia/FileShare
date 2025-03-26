@@ -2,6 +2,8 @@ import React, { useReducer, createContext, useContext, ReactNode, Dispatch, useE
 import { SocketProvider } from './SocketContext';
 import EventEmitter from '../utils/event-emitter';
 import { deviceId } from '../constants';
+import { toast } from '../utils/toast'
+import usePopups from '../hooks/usePopups';
 
 
 export const emitter = new EventEmitter();
@@ -86,16 +88,18 @@ function appReducer(state: AppState, action: Action): AppState {
             return { ...state, peers: [...state.peers, action.peer] };
         case 'disconnection':
             return { ...state, peers: state.peers.filter(p => p.deviceId !== action.peer.deviceId) };
-        case 'set-name': 
-            return {...state, deviceName: action.value}
+        case 'set-name':
+            return { ...state, deviceName: action.value }
         case 'update-name':
-            return {...state, peers: state.peers.map(peer => {
-                if (peer.deviceId === action.value.deviceId) {
-                    return {...peer, deviceName: action.value.deviceName}
-                } else {
-                    return peer
-                }
-            })}
+            return {
+                ...state, peers: state.peers.map(peer => {
+                    if (peer.deviceId === action.value.deviceId) {
+                        return { ...peer, deviceName: action.value.deviceName }
+                    } else {
+                        return peer
+                    }
+                })
+            }
         default:
             return state;
     }
@@ -118,22 +122,25 @@ interface AppProviderProps {
 
 export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const [state, dispatch] = useReducer(appReducer, initialState);
+    const { Popup, addPopup } = usePopups()
     const confirm = (message: string, callback: (confirmed: boolean) => void) => {
-        const confirmed = window.confirm(message);
-        callback(confirmed);
+        addPopup('confirm', {
+            message,
+            callback
+        })
     }
     const alert = (message: string) => {
-        window.alert(message);
-    }
-    const flash = (message: string) => {
-        window.alert(message)
+        addPopup('alert', {
+            message
+        })
     }
     useEffect(() => {
         localStorage.setItem('deviceName', state.deviceName)
     }, [state.deviceName])
     return (
-        <AppContext.Provider value={{ state, dispatch, emit, confirm, alert, flash }}>
+        <AppContext.Provider value={{ state, dispatch, emit, confirm, alert, flash: toast }}>
             <SocketProvider>
+                {Popup}
                 {children}
             </SocketProvider>
         </AppContext.Provider>
