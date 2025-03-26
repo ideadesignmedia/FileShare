@@ -19,7 +19,7 @@ const Header: React.FC<HeaderProps> = ({ }) => {
         {!isDesktop ? <Button variant="danger" size="sm" className="absolute top-1 right-1 pointer" onClick={() => {
             setShowMore(false)
         }}>{icons.x}</Button> : null}
-        <div className='grow flex items-center justify-items-start gap-2'>
+        <div className='grow'>
             <DeviceName />
         </div>
         <PeerSelector />
