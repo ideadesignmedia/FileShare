@@ -902,8 +902,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             setSelectedPeer('')
         } else if (!connectedPeers.includes(selectedPeer) && availablePeers.includes(selectedPeer) && !requestedPeers.current.has(selectedPeer)) {
             createPeerConnection(selectedPeer, true)
-        } else if (!selectedPeer && connectedPeers.length) {
-            setSelectedPeer(connectedPeers[0])
         }
     }, [selectedPeer, connectedPeers, availablePeers])
     return (
