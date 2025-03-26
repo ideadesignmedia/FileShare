@@ -54,7 +54,7 @@
     
     /* Headings */
     h1, h2, h3, h4, h5, h6 {
-        @apply font-bold text-gray-900;
+        @apply font-bold text-inherit;
     }
     
     h1 { @apply text-4xl
@@ -82,12 +82,12 @@
     
     /* Paragraphs */
     p {
-        @apply text-base text-gray-700 leading-relaxed;
+        @apply text-base text-inherit leading-relaxed;
     }
     
     /* Links */
     a {
-        @apply text-blue-600 hover:underline hover:text-blue-700 transition-colors;
+        @apply text-inherit hover:underline hover:text-blue-700 transition-colors;
     }
     
     /* Buttons */
