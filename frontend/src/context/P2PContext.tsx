@@ -183,7 +183,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 setRtcPeers(prev => ({ ...prev, [deviceId]: true }));
             } else if (["disconnected", "closed", "failed"].includes(peerConnection.connectionState)) {
                 disconnectionCount.current[deviceId] = (disconnectionCount.current[deviceId] || 0) + 1;
-                if (requestedPeers.current.has(deviceId)) {
+                if (peerConnection.connectionState === 'failed' && requestedPeers.current.has(deviceId)) {
                     delete peerConnections.current[deviceId]
                     delete dataChannels.current[deviceId];
                     setRtcPeers(prev => {
