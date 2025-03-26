@@ -8,7 +8,7 @@ interface ToggleProps {
 
 const Toggle: FC<ToggleProps> = ({ enabled, onToggle, label }) => {
   return (
-    <div className="flex items-center">
+    <div className="flex items-center flex-wrap justify-start">
       {label && <span className="mr-3 font-medium">{label}</span>}
       <div
         className={`relative inline-block w-16 h-8 rounded-full transition-colors duration-300 ${
