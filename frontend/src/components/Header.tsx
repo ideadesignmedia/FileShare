@@ -11,7 +11,6 @@ interface HeaderProps {
 
 }
 const isDesktop = deviceTypes.Desktop === device.deviceType
-console.log(isDesktop)
 const Header: React.FC<HeaderProps> = ({ }) => {
     const [showMore, setShowMore] = useState(isDesktop)
     const headerOptions = useMemo(() => {
