@@ -20,7 +20,7 @@ customElements.define('toast-manager', class Toaster extends HTMLElement {
           }
           #toast-box {
             position: fixed;
-            top: calc(env(safe-area-inset-top) + 0.2rem);
+            top: .2rem;
             right: .2rem;
             height: auto;
             width: auto;

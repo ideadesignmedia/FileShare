@@ -28,7 +28,7 @@ const Header: React.FC<HeaderProps> = ({ }) => {
         </>
     }, [])
     return (
-        <header className="bg-blue-600
+        <header className="bg-blue-700
          text-white 
          px-3
          pt-2

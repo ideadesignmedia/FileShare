@@ -915,9 +915,9 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
     useEffect(() => {
         if (!connectedPeers.includes(selectedPeer) && !availablePeers.includes(selectedPeer)) {
             setSelectedPeer('')
-        } else if (!connectedPeers.includes(selectedPeer) && availablePeers.includes(selectedPeer) && !requestedPeers.current.has(selectedPeer)) {
+        } /* else if (!connectedPeers.includes(selectedPeer) && availablePeers.includes(selectedPeer) && !requestedPeers.current.has(selectedPeer)) {
             createPeerConnection(selectedPeer, true)
-        }
+        } */
     }, [selectedPeer, connectedPeers, availablePeers])
     return (
         <P2PContext.Provider value={{
