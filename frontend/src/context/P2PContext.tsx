@@ -1,4 +1,4 @@
-import React, { useContext, createContext, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useContext, createContext, useCallback, useEffect, useRef, useMemo, AnyActionArg } from 'react';
 import { useSocket } from './SocketContext';
 import { emitter, useAppContext } from './AppContext';
 import { rtcOptions } from '../constants';
@@ -26,7 +26,9 @@ export type P2PContextType = {
     receivedFileProgress: { [deviceId: string]: { [fileId: string]: { progress: number, name: string } } };
     sentFileProgress: { [deviceId: string]: { [fileId: string]: { progress: number, name: string } } };
     selectedPeer: string
-    setSelectedPeer: (peer: string) => void
+    setSelectedPeer: React.Dispatch<React.SetStateAction<string>>
+    setAutoAcceptFiles: React.Dispatch<React.SetStateAction<boolean>>
+    autoAcceptFiles: boolean
 };
 
 export type PeerMessage = { requestId?: string } & (
@@ -72,6 +74,7 @@ const P2PContext = createContext<P2PContextType | undefined>(undefined);
 export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
     const { state, confirm } = useAppContext();
     const { send } = useSocket();
+    const [autoAcceptFiles, setAutoAcceptFiles] = React.useState(Boolean(localStorage.getItem('auto-accept')))
     const [selectedPeer, setSelectedPeer] = React.useState<string>('');
     const peerConnections = useRef<{ [deviceId: string]: RTCPeerConnection }>({});
     const requestedPeers = useRef<Set<string>>(new Set());
@@ -97,6 +100,13 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
     const [sentFileProgress, setSentFileProgress] = React.useState<{
         [deviceId: string]: { [fileId: string]: { progress: number, name: string } }
     }>({});
+    useEffect(() => {
+        if (autoAcceptFiles) {
+            localStorage.setItem('auto-accept', 'true')
+        } else {
+            localStorage.removeItem('auto-accept')
+        }
+    }, [autoAcceptFiles])
     const sendMessage = (deviceId: string, payload: PeerMessage, requestId?: string, timeout = 5000): Promise<PeerMessage | null> => {
         const transmit = () => {
             send(
@@ -795,14 +805,19 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         type: data.data.type
                     };
 
-                    confirm(`Accept file "${name}" (${formatBytes(size, 2)}) from ${state.peers.find((({deviceId: d}) => d === deviceId))?.deviceName || deviceId}?`, (accepted) => {
-                        if (accepted) {
-                            sendMessage(deviceId, { type: "file-accept", fileId, requestId: data.requestId });
-                        } else {
-                            sendMessage(deviceId, { type: "file-reject", fileId, requestId: data.requestId });
-                        }
+                    if (!autoAcceptFiles) {
+                        confirm(`Accept file "${name}" (${formatBytes(size, 2)}) from ${state.peers.find((({ deviceId: d }) => d === deviceId))?.deviceName || deviceId}?`, (accepted) => {
+                            if (accepted) {
+                                sendMessage(deviceId, { type: "file-accept", fileId, requestId: data.requestId });
+                            } else {
+                                sendMessage(deviceId, { type: "file-reject", fileId, requestId: data.requestId });
+                            }
+                            delete pendingFileRequests.current[fileId];
+                        })
+                    } else {
+                        sendMessage(deviceId, { type: "file-accept", fileId, requestId: data.requestId });
                         delete pendingFileRequests.current[fileId];
-                    });
+                    }
                     break;
                 }
                 case "file-accept":
@@ -833,7 +848,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                     break;
             }
         }
-    }, [createPeerConnection, state.peers]);
+    }, [createPeerConnection, state.peers, autoAcceptFiles]);
 
     const onBroadcast = useCallback((message: PeerBroadCastMessage) => {
 
@@ -920,7 +935,9 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             connectedPeers,
             availablePeers,
             cancelUpload,
-            sentFileProgress
+            sentFileProgress,
+            autoAcceptFiles,
+            setAutoAcceptFiles
         }}>
             {children}
         </P2PContext.Provider>

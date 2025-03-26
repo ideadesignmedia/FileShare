@@ -7,7 +7,7 @@ import { useAppContext } from '../context/AppContext'
 export default React.memo(function LogOut() {
     const {dispatch} = useAppContext()
     const {send, close} = useSocket()
-    return <Button onClick={() => {
+    return <Button size="sm" variant="danger" onClick={() => {
         send({ type: 'logout' })
         localStorage.removeItem('token')
         dispatch({ type: 'set-credentials', credentials: null })

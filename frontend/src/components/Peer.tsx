@@ -139,25 +139,25 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
             }} />
             <div className='flex gap-2 items-center justify-center my-1'>
                 {!sending ? (selectedFiles.length ? <>
-                    <button disabled={sending} onClick={handleFiles}>Send</button>
-                    <button disabled={sending} onClick={() => {
+                    <Button disabled={sending} onClick={handleFiles}>Send</Button>
+                    <Button size="sm" variant="secondary" disabled={sending} onClick={() => {
                         setSelectedFiles([])
                     }
-                    }>Clear</button>
+                    }>Clear</Button>
                 </> : <>
-                    <button disabled={sending} onClick={() => {
+                    <Button disabled={sending} onClick={() => {
                         if (fileRef.current) {
                             fileRef.current.removeAttribute('webkitdirectory');
                             fileRef.current.click()
                         }
                     }
-                    }>Select Files</button>
-                    {device.deviceType === deviceTypes.Desktop && <button disabled={sending} onClick={() => {
+                    }>Select Files</Button>
+                    {device.deviceType === deviceTypes.Desktop && <Button disabled={sending} onClick={() => {
                         if (fileRef.current) {
                             fileRef.current.setAttribute('webkitdirectory', 'true');
                             fileRef.current.click()
                         }
-                    }}>Send Folder</button>}
+                    }}>Send Folder</Button>}
                 </>) : <div>
                     <p>Sending...</p>
                 </div>}
@@ -165,9 +165,9 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
         </div> : <div className='flex flex-col gap-2 items-center justify-center'>
             <h4>Not connected to: {peer}</h4>
         </div>}
-        {isConnected ? <Button className="mt-3" onClick={() => {
+        {isConnected ? <Button size="sm" variant='danger' className="mt-5" onClick={() => {
             disconnectPeerConnection(peer)
-        }}>Disconnect</Button> : <Button className="mt-3" onClick={() => {
+        }}>Disconnect</Button> : <Button className="mt-5" onClick={() => {
             createPeerConnection(peer, true)
         }}>
             Connect to Peer

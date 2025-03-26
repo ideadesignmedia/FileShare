@@ -15,7 +15,7 @@ export default React.memo(function DeviceName() {
     useEffect(() => {
         setInput(state.deviceName)
     }, [state.deviceName])
-    if (!changing) return <div className="text-white cursor-pointer flex gap-1 items-center justify-center" onClick={() => setChanging(true)}><h5 className='underline'>Name:</h5> <h5>{state.deviceName}</h5> <Button>Change</Button></div>
+    if (!changing) return <div className="text-white cursor-pointer flex gap-1 items-center justify-center" onClick={() => setChanging(true)}><h5 className='underline'>Device Name:</h5> <h5>{state.deviceName}</h5> <Button size="sm" variant="outline">Change</Button></div>
     return <div className="flex gap-1 items-center justify-center">
         <input type="text" value={input} onChange={e => {
             setInput(e.target.value)
@@ -24,6 +24,6 @@ export default React.memo(function DeviceName() {
                 changeName(input)
             }
         }} />
-        <Button onClick={() => { changeName(input) }}>Set</Button>
+        <Button size="sm" variant='secondary' onClick={() => { changeName(input) }}>Set</Button>
     </div>
 })

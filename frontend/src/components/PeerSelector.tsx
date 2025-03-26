@@ -17,7 +17,8 @@ export default React.memo(function PeerSelector() {
     const onOptionSelect = useCallback((option: string) => {
         setSelectedPeer(option)
     }, [])
-    return <div>
+    return <div className="flex flex-wrap items-center justify-items-start">
+        <span>Connected to:</span>
         <Select options={dropDownOptions} value={selectedPeer} onChange={onOptionSelect} defaultValue={{ content: <span>Select Peer</span> }} />
     </div>
 })

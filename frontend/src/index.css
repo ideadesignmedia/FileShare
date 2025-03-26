@@ -18,6 +18,9 @@
         margin: 0;
         padding: 0;
     }
+    .pointer, .pointer * {
+        cursor: pointer;
+    }
     /* Root layout */
     html {
         height: 100vh;
