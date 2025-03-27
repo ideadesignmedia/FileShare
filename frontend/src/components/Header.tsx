@@ -40,6 +40,7 @@ const Header: React.FC<HeaderProps> = ({ }) => {
          
          top-0
          z-10
+         flex-shrink-0
          min-h-18
         ">
             <div className={`flex 

@@ -109,7 +109,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
         {receivedProgress.length ? (<div className='flex flex-col gap-2 w-full'>
             <h3>Received Files</h3>
             <div className='flex flex-col gap-2 w-full'>
-                {receivedProgress.filter(({ fileId }) => !clearedFiles.includes(fileId)).map((file) => <FileTransferProgress key={file.fileName} peer={peer} fileId={file.fileId} progress={file.progress} fileName={file.fileName} close={clearFile} />)}
+                {receivedProgress.filter(({ fileId }) => !clearedFiles.includes(fileId)).map((file) => <FileTransferProgress key={file.fileId} peer={peer} fileId={file.fileId} progress={file.progress} fileName={file.fileName} close={clearFile} />)}
             </div>
         </div>) : null}
         {sentProgress.length ? (<div className='flex flex-col gap-2 w-full'>

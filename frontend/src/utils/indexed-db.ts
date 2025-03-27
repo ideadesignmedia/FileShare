@@ -70,7 +70,7 @@ export async function createIndexedDBChunkStream(fileId: string): Promise<Readab
                 cursorRequest.onsuccess = (event: any) => {
                     const cursor = event.target.result;
                     if (cursor) {
-                        controller.enqueue(cursor.value.chunkData);
+                        controller.enqueue(cursor.value);
                         cursor.continue();
                     } else {
                         controller.close();
