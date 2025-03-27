@@ -18,7 +18,16 @@ export const clientRequests = new Map<string, WebSocket>()
 export const authTimeouts = new Map<WebSocket, any>()
 export const userSockets = new Map<number, Map<string, WebSocket>>()
 export const startServer = () => {
-    const wss = new WebSocketServer({ port: Number(process.env.PORT) || 8080 })
+    const wss = new WebSocketServer({ port: Number((() => {
+        let port = parseInt(process.argv.slice(2)[0])
+        if (Number.isNaN(port)) {
+            port = Number(process.env.PORT)
+        }
+        if (Number.isNaN(port)) {
+            port = 8080
+        }
+        return port
+    })())})
     wss.on('connection', (ws: WebSocket) => {
         clients.set(ws, { id: 0, authorized: false })
         authTimeouts.set(ws, setTimeout(() => {
