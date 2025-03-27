@@ -18,10 +18,9 @@ function App() {
       )
     } else {
       return (
-        <div className="flex flex-col grow items-center justify-center gap-2 w-full p-4">
+        <div className="flex flex-col grow items-center justify-center gap-3 w-full p-4">
           <h1>Login</h1>
-          <p>Use any username and password and hit submit to get started.<br/>Use the same username and password on your other devices to connect and share files using a peer to peer connection.</p>
-          <p className="text-sm text-red-600 opacity-80">If you are having errors creating a user try another username.</p>
+          <p className="">Use any username and password and hit submit to get started.<br/><br/>Use the same username and password on your other devices to connect and share files using a peer to peer connection.</p>
           <form className="flex flex-col items-center justify-start gap-1" onSubmit={e => {
             e.preventDefault()
             dispatch({ type: 'set-credentials', credentials })
@@ -31,6 +30,7 @@ function App() {
             <input type="password" placeholder="Password" value={credentials.password} onChange={e => setCredentials({ ...credentials, password: e.target.value })} />
             <Button type="submit" size="lg">Login</Button>
           </form>
+          <p className="text-center text-sm text-red-600 opacity-80">If you are having errors signing in try another username.</p>
         </div>
       )
     }
