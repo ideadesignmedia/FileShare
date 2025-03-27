@@ -1,0 +1,13 @@
+{
+  "name": "FileShare",
+  "version": "1.0.0",
+  "description": "A peer to peer file sharing application.",
+  "main": "main.js",
+  "repository": "https://github.com/ideadesignmedia/FileShare.git",
+  "author": "IdeaDesignMedia",
+  "license": "GPL3",
+  "private": false,
+  "devDependencies": {
+    "electron": "^35.1.2"
+  }
+}
