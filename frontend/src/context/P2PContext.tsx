@@ -490,7 +490,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         const chunk = encryptedFile.slice(i, i + maxMessageSize);
                         const channel = getNextChannel();
                         await sendChunk(channel, chunk, sentChunks, 1, 1);
-                        console.log('Sent chunk', sentChunks, chunk.byteLength)
                         sentBytes += chunk.byteLength;
                         updateProgress();
                     }
@@ -562,7 +561,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                     return;
                                 }
                             }
-                            console.log('sent chunk', sentChunks, encryptedChunk.byteLength)
                         }
                         messageDataChannel(deviceId, { type: "file-end", fileId, totalChunks: sentChunks });
                         setSentFileProgress(prev => ({
@@ -601,7 +599,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         const fileInfo = receivedFiles.current[deviceId][fileId];
         if (fileInfo.finalized) return console.warn(`File "${fileInfo.name}" already finalized.`);
         fileInfo.finalized = true
-        console.log("Downloading file", fileInfo.name)
         setReceivedFileProgress(prev => {
             return {
                 ...prev,
@@ -730,7 +727,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
 
             case "file-chunk": {
                 const fileInfo = receivedFiles.current[deviceId]?.[fileId];
-                console.log('receive chunk', message.chunkNumber, message.chunkPart, message.totalParts)
                 if (fileInfo) {
                     if (fileInfo.size < largeFileSize) {
                         if (!receivedChunks.current[deviceId]) receivedChunks.current[deviceId] = {};
@@ -753,7 +749,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         const partialChunks = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
                         if (partialChunks && partialChunks.parts.size === partialChunks.totalParts) {
                             fileInfo.chunksReceived += 1;
-                            console.log("Received chunk", message.chunkNumber, partialChunks.parts.size, partialChunks.totalParts, new Uint8Array(Array.from(partialChunks.parts.values()).flatMap((ar) => Array.from(ar))).byteLength)
                             const receivedSize = Object.values(receivedChunks.current[deviceId][fileId])
                                 .reduce((acc: number, map: Parts) => {
                                     const chunks = Array.from(map.parts.entries()).sort(([indexA], [indexB]) => {
@@ -799,7 +794,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         const partialChunks = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
                         if (partialChunks && partialChunks.parts.size === partialChunks.totalParts) {
                             const fullChunk = new Uint8Array(Array.from(partialChunks.parts.entries()).sort(([indexA], [indexB]) => indexA - indexB).map(([_, value]) => Array.from(value)).flat())
-                            console.log("Received chunk", message.chunkNumber, partialChunks.parts.size, partialChunks.totalParts, fullChunk.byteLength)
                             saveChunkToIndexedDB(fileId, message.chunkNumber, fullChunk).then(() => {
                                 fileInfo.chunksReceived += 1;
                                 fileInfo.progress += fullChunk.byteLength;
