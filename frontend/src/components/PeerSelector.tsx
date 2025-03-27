@@ -5,7 +5,7 @@ import { useAppContext } from '../context/AppContext'
 
 export default React.memo(function PeerSelector() {
     const {state} = useAppContext()
-    const { availablePeers, connectedPeers, selectedPeer, setSelectedPeer } = useP2PContext()
+    const { availablePeers, connectedPeers, selectedPeer, setSelectedPeer, createPeerConnection } = useP2PContext()
     const dropDownOptions: SelectOptions = useMemo(() => {
         const options =  [...availablePeers, ...connectedPeers].map(peer => {
             const name = state.peers.find(p => p.deviceId === peer)?.deviceName || peer
@@ -16,7 +16,8 @@ export default React.memo(function PeerSelector() {
     }, [availablePeers, connectedPeers, state.peers, selectedPeer])
     const onOptionSelect = useCallback((option: string) => {
         setSelectedPeer(option)
-    }, [])
+        if (!connectedPeers.includes(option)) createPeerConnection(option, true)
+    }, [connectedPeers])
     return <div className="flex flex-wrap items-center justify-items-start">
         <span>Connected to:</span>
         <Select options={dropDownOptions} value={selectedPeer} onChange={onOptionSelect} defaultValue={{ content: <span>Select Peer</span> }} />
