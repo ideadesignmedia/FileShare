@@ -131,7 +131,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     async function downloadFiles(manifest) {
         for (const file of manifest.files) {
-            await new Promise((res) => setTimeout(res, 1000))
             try {
                 const destPath = FileSystem.resolvePath(file.path, true);
                 await FileSystem.ensureDirectoryExists(destPath, true);
@@ -168,7 +167,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // Step 2: Replace working directory with temp files
             manifest.files.sort((a, b) => (a.path === 'index.js' || a.path === 'index.css') ? 1 : (b.path === 'index.js' || b.path === 'index.css') ? -1 : 0)
             for (const file of manifest.files) {
-                await new Promise((res) => setTimeout(res, 1000))
                 const srcPath = file.location || FileSystem.resolvePath(file.path, true);
                 const destPath = FileSystem.resolvePath(file.path, false);
                 try {
@@ -232,7 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const manifest = await fetchManifest();
         if (!manifest) return Promise.reject('Failed to fetch manifest.');
         const version = parseInt(manifest.version);
-        const current = parseInt(localStorage.getItem('version') || '1');
+        const current = parseInt(localStorage.getItem('version') || window.defaultVersion);
         console.log("VERSION", version, 'CUR', current)
         if (version === current || await window.updateBridge.isUpdating()) {
             window.dispatchEvent(new Event('no-updates'))
@@ -342,7 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }, () => {
                     FileSystem.createDirectory(workingDir).then(() => {
                         return FileSystem.copyDirectory(applicationDir, workingDir, false).then(() => {
-                            localStorage.setItem('version', window.firstVersion || '49')
+                            localStorage.setItem('version', window.firstVersion || window.defaultVersion)
                             return resolve()
                         }).catch(reject)
                     }).catch(reject);
@@ -352,7 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.removeItem('version')
                 console.error('Error restoring backup:', e)
                 return Promise.all([FileSystem.deleteDirectory(workingDir), FileSystem.deleteDirectory(backupDir)]).then(() => {
-                    localStorage.setItem('version', window.firstVersion || '1')
+                    localStorage.setItem('version', window.firstVersion || window.defaultVersion)
                     create()
                 }).catch(reject)
             }

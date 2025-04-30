@@ -45,9 +45,35 @@ if (fs.existsSync(cordovaInit)) {
   fs.copyFileSync(cordovaInit, path.join(cordovaDir, 'cordova-initialize.js'))
 }
 const cordovaIndex = path.join(path.dirname(cordovaDir), 'cordova-index.html')
-if (fs.existsSync(cordovaIndex)) fs.copyFileSync(cordovaIndex, path.join(cordovaDir, 'index.html'))
+if (fs.existsSync(cordovaIndex)) {
+  let file = fs.readFileSync(cordovaIndex, {encoding: 'utf-8'})
+  const fileParts = file.split('\n')
+  const exp = new RegExp(`window.defaultVersion =`)
+  for (let i = 0; i < fileParts.length; i++) {
+    if (exp.test(fileParts[i])) {
+      fileParts[i] = `window.defaultVersion = '${newCacheNumber}'`
+      break
+    }
+  }
+  file = fileParts.join('\n')
+  fs.writeFileSync(cordovaIndex, file)
+  fs.copyFileSync(cordovaIndex, path.join(cordovaDir, 'index.html'))
+}
 const electronIndex = path.join(path.dirname(electronDir), 'electron-index.html')
-if (fs.existsSync(electronIndex)) fs.copyFileSync(electronIndex, path.join(electronDir, 'index.html'))
+if (fs.existsSync(electronIndex)) {
+  let file = fs.readFileSync(electronIndex, {encoding: 'utf-8'})
+  const fileParts = file.split('\n')
+  const exp = new RegExp(`window.defaultVersion =`)
+  for (let i = 0; i < fileParts.length; i++) {
+    if (exp.test(fileParts[i])) {
+      fileParts[i] = `window.defaultVersion = '${newCacheNumber}'`
+      break
+    }
+  }
+  file = fileParts.join('\n')
+  fs.writeFileSync(electronIndex, file)
+  fs.copyFileSync(electronIndex, path.join(electronDir, 'index.html'))
+}
 const electronInit = path.join(path.dirname(electronDir), 'electron-initialize.js')
 if (fs.existsSync(electronInit)) fs.copyFileSync(electronInit, path.join(electronDir, 'electron-initialize.js'))
 const initSW = path.resolve('./init-sw.js')

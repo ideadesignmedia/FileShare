@@ -15,8 +15,9 @@
         frame-src *; 
         connect-src *;">
   <script>
-    if (!localStorage.getItem('version')) localStorage.setItem('version', '128');
-    window.firstVerion = parseInt(localStorage.getItem('version') || '1');
+window.defaultVersion = '29'
+    if (!localStorage.getItem('version')) localStorage.setItem('version', window.defaultVersion);
+    window.firstVerion = parseInt(localStorage.getItem('version') || window.defaultVersion);
   </script>
   <script src="cordova.js"></script>
   <script>
@@ -120,7 +121,7 @@
       </style>
       <div class="welcome-container">
         <img src="" alt="">
-        <span id="version">Version ${localStorage.getItem('version')}</span>
+        <span id="version">Version ${localStorage.getItem('version') || window.defaultVersion}</span>
         <div class="spinner"></div>
         <span id="checking">Checking for Updates</span>
         <div class="update-container">

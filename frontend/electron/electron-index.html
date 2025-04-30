@@ -9,8 +9,9 @@
   <title>FileShare</title>
   <meta name="description" content="A Peer to Peer file sharing app." />
   <script>
-    if (!localStorage.getItem('version')) localStorage.setItem('version', '1');
-    window.firstVerion = parseInt(localStorage.getItem('version') || '1');
+window.defaultVersion = '29'
+    if (!localStorage.getItem('version')) localStorage.setItem('version', window.defaultVersion);
+    window.firstVerion = parseInt(localStorage.getItem('version') || window.defaultVersion);
     document.addEventListener('DOMContentLoaded', () => {
       class WelcomeScreen extends HTMLElement {
         constructor() {

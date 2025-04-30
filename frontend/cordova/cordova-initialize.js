@@ -525,7 +525,7 @@ document.addEventListener('deviceready', () => {
         const manifest = await fetchManifest();
         if (!manifest) return Promise.reject('Failed to fetch manifest.');
         const version = parseInt(manifest.version);
-        const current = parseInt(localStorage.getItem('version') || '1');
+        const current = parseInt(localStorage.getItem('version') || window.defaultVersion);
         if (version === current) {
             window.dispatchEvent(new Event('no-updates'))
             return Promise.resolve();
@@ -723,7 +723,7 @@ document.addEventListener('deviceready', () => {
                             console.log("Created working dir")
                             return copyDirectory(cordova.file.applicationDirectory + 'www/', workingDir, false).then(() => {
                                 console.log("Copied www to working dir")
-                                localStorage.setItem('version', window.firstVersion || '49')
+                                localStorage.setItem('version', window.firstVersion || window.defaultVersion)
                                 return resolve()
                             }).catch(reject)
                         }).catch(reject);
@@ -753,7 +753,7 @@ document.addEventListener('deviceready', () => {
                             })
                         })
                     }).then(() => {
-                        localStorage.setItem('version', window.firstVersion || '49')
+                        localStorage.setItem('version', window.firstVersion || window.defaultVersion)
                         create()
                     }).catch(reject)
                 }
