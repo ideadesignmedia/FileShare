@@ -1,9 +1,9 @@
-import React, { useReducer, createContext, useContext, ReactNode, Dispatch, useEffect } from 'react';
+import React, { useReducer, createContext, useContext, ReactNode, Dispatch, useEffect, useState } from 'react';
 import { SocketProvider } from './SocketContext';
 import EventEmitter from '../utils/event-emitter';
-import { deviceId } from '../constants';
 import { toast } from '../utils/toast'
 import usePopups from '../hooks/usePopups';
+import UpdateAvailable from '../components/UpdateAvailable';
 
 
 export const emitter = new EventEmitter();
@@ -121,6 +121,7 @@ interface AppProviderProps {
 }
 
 export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
+    const [updateAvailable, setUpdateAvailable] = useState<boolean>(false)
     const [state, dispatch] = useReducer(appReducer, initialState);
     const { Popup, addPopup } = usePopups()
     const confirm = (message: string, callback: (confirmed: boolean) => void) => {
@@ -137,11 +138,23 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     useEffect(() => {
         localStorage.setItem('deviceName', state.deviceName)
     }, [state.deviceName])
+    useEffect(() => {
+        if (window.updates) {
+            const onUpdateAvailable = () => {
+                setUpdateAvailable(true)
+            }
+            window.updates.addEventListener('update-completed', onUpdateAvailable)
+            return () => {
+                window.updates?.removeEventListener('update-completed', onUpdateAvailable)
+            }
+        }
+    }, [])
     return (
         <AppContext.Provider value={{ state, dispatch, emit, confirm, alert, flash: toast }}>
             <SocketProvider>
                 {Popup}
                 {children}
+                {updateAvailable && <UpdateAvailable setVisible={setUpdateAvailable} />}
             </SocketProvider>
         </AppContext.Provider>
     );

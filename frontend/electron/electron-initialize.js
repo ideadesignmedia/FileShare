@@ -8,7 +8,7 @@ const server = () => window.updateBridge?.server || ''
 class FileSystem {
     static fileExt = /file:/
     static seperator = window.env.os === 'win32' ? '\\' : '/'
-    
+
     static resolvePath(path, useTempDir) {
         const root = useTempDir ? tempDir : workingDir;
         if (path.startsWith(root)) return path
@@ -16,7 +16,7 @@ class FileSystem {
             ? root + this.seperator + path.slice(1)
             : root + this.seperator + path;
     }
-    
+
     static resolveLocalFileSystemURL(path, existsCallback, notExistsCallback) {
         window.fileSystemAPI.resolveLocalFileSystemURL(path).then((result) => {
             if (result.exists) {
@@ -74,7 +74,11 @@ class FileSystem {
         return window.fileSystemAPI.replaceFile(sourcePath, targetPath)
     }
 }
+window.FileSystem = FileSystem
 document.addEventListener('DOMContentLoaded', () => {
+    const element = document.createElement('welcome-screen')
+    console.log('Creating welcome screen', element)
+    document.body.append(element)
     class Updater extends EventTarget {
         isUpdating = false
         details = null
@@ -127,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     async function downloadFiles(manifest) {
         for (const file of manifest.files) {
+            await new Promise((res) => setTimeout(res, 1000))
             try {
                 const destPath = FileSystem.resolvePath(file.path, true);
                 await FileSystem.ensureDirectoryExists(destPath, true);
@@ -148,12 +153,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('Error creating backup directory');
             })
             // Step 1: Backup current files
-            await FileSystem.copyDirectory(workingDir, backupDir, true).catch(e => {
+            await FileSystem.copyDirectory(workingDir, backupDir, true).then(() => {
+                backedup = true;
+            }).catch(e => {
                 backedup = false
                 console.error('Error backing up files:', workingDir, backupDir, e);
                 throw e
             })
-            backedup = true;
             await FileSystem.ensureDirectoryExists(workingDir).catch(e => {
                 console.error('Error creating new working directory:', e);
                 throw e; // Abort and trigger rollback
@@ -162,11 +168,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // Step 2: Replace working directory with temp files
             manifest.files.sort((a, b) => (a.path === 'index.js' || a.path === 'index.css') ? 1 : (b.path === 'index.js' || b.path === 'index.css') ? -1 : 0)
             for (const file of manifest.files) {
+                await new Promise((res) => setTimeout(res, 1000))
                 const srcPath = file.location || FileSystem.resolvePath(file.path, true);
-                const destPath = FileSystem.resolve(file.path, false);
+                const destPath = FileSystem.resolvePath(file.path, false);
                 try {
-                    await ensureDirectoryExists(destPath, false);
-                    await replaceFile(srcPath, destPath);
+                    await FileSystem.ensureDirectoryExists(destPath, false);
+                    await FileSystem.replaceFile(srcPath, destPath);
                     window.updates.progressChange(Math.round(((manifest.files.indexOf(file) / manifest.files.length)) * 29 + 71))
                 } catch (error) {
                     console.error(`Error replacing file: ${file.path}`, JSON.stringify(error));
@@ -174,31 +181,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             // Step 3: Cleanup temp directory
-            await deleteDirectory(tempDir).catch(e => {
+            await FileSystem.deleteDirectory(tempDir).catch(e => {
                 console.error('Error deleting temp directory:', e);
                 throw e; // Abort and trigger rollback
             })
-            await deleteDirectory(backupDir).then(() => {
+            await FileSystem.deleteDirectory(backupDir).then(() => {
                 backedup = false
             }).catch(e => {
                 console.error('Error deleting backup directory:', e);
                 throw e; // Abort and trigger rollback
             })
         } catch (error) {
-            console.error('Error during file replacement, rolling back:', JSON.stringify(error));
+            console.error('Error during file replacement, rolling back:', error);
             // Rollback: Restore from backup
-            if (backedup) await deleteDirectory(workingDir).catch(e => {
-                console.error('Error deleting new working directory:', e);
-            })
-            await deleteDirectory(tempDir).catch(e => {
+            if (backedup) {
+                await FileSystem.deleteDirectory(workingDir).catch(e => {
+                    console.error('Error deleting new working directory:', e);
+                })
+            }
+            await FileSystem.deleteDirectory(tempDir).catch(e => {
                 console.error('Error deleting temp directory:', e);
             })
-            if (backedup) await copyDirectory(backupDir, workingDir, false).catch(e => {
-                console.error('Error restoring backup files:', e);
-                return deleteDirectory(workingDir).then(() => {
-                    return copyDirectory(applicationDir, workingDir, false)
-                }).catch(() => { });
-            }).finally(() => deleteDirectory(backupDir).catch(() => { }))
+            if (backedup) {
+                await FileSystem.copyDirectory(backupDir, workingDir, false).catch(e => {
+                    console.error('Error restoring backup files:', e);
+                    return FileSystem.deleteDirectory(workingDir).then(() => {
+                        return copyDirectory(applicationDir, workingDir, false)
+                    }).catch(() => { });
+                }).finally(() => FileSystem.deleteDirectory(backupDir).catch(() => { }))
+            }
             throw new Error('File replacement failed and rolled back.');
         }
     }
@@ -222,14 +233,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!manifest) return Promise.reject('Failed to fetch manifest.');
         const version = parseInt(manifest.version);
         const current = parseInt(localStorage.getItem('version') || '1');
-        if (version === current) {
+        console.log("VERSION", version, 'CUR', current)
+        if (version === current || await window.updateBridge.isUpdating()) {
             window.dispatchEvent(new Event('no-updates'))
+            window.updates.updateCompleted()
             return Promise.resolve();
         }
-        if (await window.updateBridge.isUpdating()) return
         await window.updateBridge.setUpdating(true)
         try {
-            console.log("UPDATING APP from", current, "to", version)
             window.updates.updateStarted(manifest)
             await FileSystem.ensureDirectoryExists(tempDir).catch(e => {
                 console.error('Error creating temp directory:', e);
@@ -239,22 +250,21 @@ document.addEventListener('DOMContentLoaded', () => {
             window.updates.stateChange('Downloading files...')
             await downloadFiles(manifest).catch(async e => {
                 console.error('Error downloading files:', e);
-                await deleteDirectory(tempDir).catch(e => {
+                await FileSystem.deleteDirectory(tempDir).catch(e => {
                     console.error('Error deleting temp directory:', e);
                 })
                 throw new Error('Error downloading files.');
             })
             window.updates.stateChange('Replacing files...')
             window.updates.progressChange(71)
-            await replaceFiles(manifest).then(() => {
-                localStorage.setItem('version', version.toString());
-                window.updates.updateCompleted()
-            }).catch(async e => {
+            await replaceFiles(manifest).catch(async e => {
                 console.error('Error replacing files:', e);
                 throw new Error('Error replacing files.');
             })
+            localStorage.setItem('version', version.toString());
             await window.updateBridge.setUpdating(false)
-        } catch(e) {
+            window.updates.updateCompleted()
+        } catch (e) {
             await window.updateBridge.setUpdating(false)
             throw e
         }
@@ -286,8 +296,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.error('Invalid index.css')
                         return reload()
                     }
-                    console.log("LOADING BUNDLE")
                     const link = document.createElement('link');
+                    link.crossOrigin = true
                     link.href = '/index.css';
                     link.rel = 'stylesheet';
                     document.head.appendChild(link);
@@ -299,10 +309,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             return reload()
                         }
                         const script = document.createElement('script');
+                        script.type = 'module'
+                        script.crossOrigin = true
                         script.src = '/index.js';
-                        script.defer = true;
                         document.head.appendChild(script);
-                        console.log("BUNDLE LOADED")
                     }).catch(e => {
                         console.error('Error fetching index.js:', e)
                         reload()
@@ -320,7 +330,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return loadBundle()
         }
         window.addEventListener('updates-complete', () => {
-            console.log("UPDATES COMPLETE LOADING BUNDLE")
             loadBundle()
         }, { once: true })
         return manageUpdates()
@@ -329,13 +338,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return new Promise((resolve, reject) => {
             const create = () => {
                 FileSystem.resolveLocalFileSystemURL(workingDir, () => {
-                    console.log("Working dir exists")
                     resolve()
                 }, () => {
-                    createDirectory(workingDir).then(() => {
-                        console.log("Created working dir")
-                        return copyDirectory(applicationDir, workingDir, false).then(() => {
-                            console.log("Copied application to working dir")
+                    FileSystem.createDirectory(workingDir).then(() => {
+                        return FileSystem.copyDirectory(applicationDir, workingDir, false).then(() => {
                             localStorage.setItem('version', window.firstVersion || '49')
                             return resolve()
                         }).catch(reject)
@@ -351,17 +357,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }).catch(reject)
             }
             FileSystem.resolveLocalFileSystemURL(backupDir, () => {
-                console.log("Restoring backup")
                 FileSystem.deleteDirectory(workingDir).then(() => {
-                    console.log("Deleted working dir")
                     return FileSystem.deleteDirectory(tempDir)
                 }).then(() => {
-                    console.log("Deleted temp dir")
                     return FileSystem.copyDirectory(backupDir, workingDir, false).then(() => {
-                        console.log("Copied backup to working dir")
                         return FileSystem.deleteDirectory(backupDir)
                     }).then(() => {
-                        console.log("Deleted backup dir")
                         return create()
                     })
                 }).catch(onFailedRestore)
@@ -372,7 +373,9 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('ERROR CHECKING FOR UPDATES', e)
         window.updates.updateFailed(e)
     }).finally(() => setTimeout(() => manageUpdates(), 60000 * 5))
-    initialize().catch(e => {
+    initialize().then(() => {
+        if (!document.querySelector('welcome-screen')) document.body.append(document.createElement('welcome-screen'))
+    }).catch(e => {
         console.error('Error initializing:', e);
     }).finally(() => {
         load()

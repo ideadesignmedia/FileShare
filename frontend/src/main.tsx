@@ -15,9 +15,13 @@ const start = () => createRoot(document.getElementById('root')!).render(
 )
 
 if (device.app) {
-  document.addEventListener('deviceready', () => {
+  if ('cordova' in window) {
+    document.addEventListener('deviceready', () => {
+      start()
+    })
+  } else {
     start()
-  })
+  }
 } else {
     start()
 }

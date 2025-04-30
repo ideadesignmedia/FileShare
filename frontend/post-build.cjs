@@ -30,7 +30,20 @@ fs.writeFileSync(sw, file, 'utf8')
 fs.writeFileSync(path.join(dist, 'sw.js'), file, 'utf8')
 
 const cordovaInit = path.join(path.dirname(cordovaDir), 'cordova-initialize.js')
-if (fs.existsSync(cordovaInit)) fs.copyFileSync(cordovaInit, path.join(cordovaDir, 'cordova-initialize.js'))
+if (fs.existsSync(cordovaInit)) {
+  let file = fs.readFileSync(cordovaInit, {encoding: 'utf-8'})
+  const fileParts = file.split('\n')
+  const exp = new RegExp(`const API_HOST =`)
+  for (let i = 0; i < fileParts.length; i++) {
+    if (exp.test(fileParts[i])) {
+      fileParts[i] = `const API_HOST = '${process.env.HOST}'`
+      break
+    }
+  }
+  file = fileParts.join('\n')
+  fs.writeFileSync(cordovaInit, file)
+  fs.copyFileSync(cordovaInit, path.join(cordovaDir, 'cordova-initialize.js'))
+}
 const cordovaIndex = path.join(path.dirname(cordovaDir), 'cordova-index.html')
 if (fs.existsSync(cordovaIndex)) fs.copyFileSync(cordovaIndex, path.join(cordovaDir, 'index.html'))
 const electronIndex = path.join(path.dirname(electronDir), 'electron-index.html')

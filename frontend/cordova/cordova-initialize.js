@@ -1,4 +1,4 @@
-const API_HOST = ''
+const API_HOST = 'https://fileshare.ideadesignmedia.com'
 const requiredPermissions = [
     "android.permission.WRITE_EXTERNAL_STORAGE",
     "android.permission.READ_EXTERNAL_STORAGE"

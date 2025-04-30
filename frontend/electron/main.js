@@ -5,6 +5,9 @@ const http = require('http');
 const https = require('https')
 const fs = require('fs');
 const mime = require('mime-types');
+const os = require('os')
+
+process.env.PLATFORM = os.platform()
 
 const configuration = path.resolve(path.join(__dirname, './config.json'))
 if (fs.existsSync(configuration)) {

@@ -1,7 +1,7 @@
 export type DeviceType = 'Mobile' | 'Tablet' | 'Desktop' | 'Other';
 export type Browser = 'Chrome' | 'Edge' | 'Opera' | 'Firefox' | 'Safari' | 'Internet Explorer' | 'Other';
 export type OS = 'iOS' | 'Android' | 'Windows' | 'MacOS' | 'Unknown';
-const app = 'cordova' in window
+const app = 'updates' in window
 
 export const deviceTypes: {
     Mobile: DeviceType;

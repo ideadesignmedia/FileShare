@@ -1,10 +1,8 @@
 // preload.js
 const { contextBridge, ipcRenderer } = require('electron');
-const os = require('os')
-
 contextBridge.exposeInMainWorld('env', {
     API_HOST: process.env.API_HOST,
-    os: os.platform()
+    os: process.env.PLATFORM
 })
 
 contextBridge.exposeInMainWorld('updateBridge', {
