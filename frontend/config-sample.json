@@ -1,5 +1,6 @@
 {
     "PORT": 9900,
     "AUTH": "Whatever",
-    "DIST_UPDATER": "http://localhost:9900"
+    "DIST_UPDATER": "http://localhost:9900",
+    "HOST": ""
 }

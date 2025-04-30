@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node post-build.js",
+    "build": "tsc -b && vite build && node post-build.cjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "start-dist-updater": "node ./scripts/update-dist.cjs",

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./vite.svg" />
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no, viewport-fit=cover" />
+    <title>FileShare</title>
+    <meta name="description" content="A Peer to Peer file sharing app." />
+    <script src="./electron-initialize.js"></script>
+    <script>
+        class WelcomeScreen extends HTMLElement {
+            constructor() {
+                super();
+
+                // Attach shadow DOM
+                this.shadow = this.attachShadow({ mode: 'open' });
+                this.shadow.innerHTML = `
+          <style>
+            * {
+              max-width: 100%;
+              padding: 0;
+              margin: 0;
+              text-align: center;
+              font-size: 1rem;
+              font-family: mr-eaves-modern, Arial, Helvetica, sans-serif;
+              box-sizing: border-box;
+            }
+            :host {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              height: 100%;
+              width: 100%;
+              background: #121212; /* Rich dark theme */
+              color: #ffffff; /* Light text color for contrast */
+            }
+            .welcome-container {
+              display: flex;
+              position: relative;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              width: 100%;
+              height: 100%;
+              gap: .5rem;
+              }
+            img {
+              width: 50%;
+              margin-bottom: 1rem;
+            }
+            .update-container {
+              display: none;
+              flex-direction: column;
+              align-items: center;
+              width: 80%;
+            }
+            .progress-bar {
+              position: relative;
+              height: 1rem;
+              width: 100%;
+              background: #484242;
+              border-radius: 8px;
+              overflow: hidden;
+              box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+              margin: 1rem 0;
+            }
+            .progress {
+              height: 100%;
+              width: 0%;
+              background: #4885d4;
+              transition: width 0.3s ease-in-out;
+            }
+            .message {
+              font-size: 1.25rem;
+              margin: 0.5rem 0;
+            }
+            .spinner {
+              width: 50px;
+              height: 50px;
+              border: 5px solid #121212; /* Match dark background */
+              border-top: 5px solid #4885d4; /* Highlight color for spinner */
+              border-radius: 50%;
+              animation: spin 1s linear infinite;
+            }
+            @keyframes spin {
+              to {
+                transform: rotate(360deg);
+              }
+            }
+            .close-button {
+              padding: 0.5rem 1rem;
+              background: var(--p);
+              color: #ffffff;
+              font-size: 1.25rem;
+              font-weight: 400;
+              border: none;
+              border-radius: 8px;
+              box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+              cursor: pointer;
+              transition: background 0.3s;
+              margin-top: 1rem;
+    
+            }
+              .hidden {
+                display: none;
+              }
+          </style>
+          <div class="welcome-container">
+            <img src="" alt="">
+            <span id="version">Version ${localStorage.getItem('version')}</span>
+            <div class="spinner"></div>
+            <span id="checking">Checking for Updates</span>
+            <div class="update-container">
+              <div class="message">Progress: 0%</div>
+              <div class="progress-bar">
+                <div class="progress"></div>
+              </div>
+            </div>
+            <button class="close-button hidden">Update In Background</button>
+            <div class="background-image"></div>
+          </div>
+        `;
+
+                const container = this.shadow.querySelector('.welcome-container');
+                this.progressBar = container.querySelector('.progress');
+                this.closeButton = container.querySelector('.close-button');
+
+                // Handle close button click
+                this.closeButton.addEventListener('click', () => this.handleClose());
+            }
+
+            connectedCallback() {
+                const updater = window.updates;
+                if (updater) {
+                    if (updater.noInitialUpdates) {
+                        this.onRemove()
+                        return;
+                    }
+                    this.onNoUpdates = this.onRemove.bind(this);
+                    window.addEventListener('no-updates', this.onNoUpdates);
+                    this.updateStarted = this.handleUpdateStarted.bind(this);
+                    this.updateFinished = this.handleUpdateCompleted.bind(this);
+                    this.updateProgress = this.handleProgress.bind(this);
+                    this.updateFailed = this.handleUpdateFailed.bind(this);
+                    updater.addEventListener('update-started', this.updateStarted);
+                    updater.addEventListener('progress', this.updateProgress);
+                    updater.addEventListener('update-completed', this.updateFinished);
+                    updater.addEventListener('update-failed', this.updateFailed);
+                } else {
+                    this.onRemove()
+                }
+            }
+
+            onRemove() {
+                window.dispatchEvent(new CustomEvent('updates-complete', { detail: true }));
+                const updater = window.updates;
+                if (updater) {
+                    window.removeEventListener('no-updates', this.onNoUpdates);
+                    if (this.updateStarted) updater.removeEventListener('update-started', this.updateStarted);
+                    if (this.updateProgress) updater.removeEventListener('progress', this.updateProgress);
+                    if (this.updateFinished) updater.removeEventListener('update-completed', this.updateFinished);
+                    if (this.updateFailed) updater.removeEventListener('update-failed', this.updateFailed);
+                }
+                setTimeout(() => {
+                    this.remove();
+                })
+            }
+
+            handleUpdateStarted() {
+                this.closeButton.classList.remove('hidden');
+                const updateContainer = this.shadow.querySelector('.update-container');
+                updateContainer.style.display = 'flex';
+                this.shadow.querySelector('#checking').style.display = 'none';
+                this.shadow.querySelector('#version').innerHTML = 'Downloading Latest Version'
+            }
+
+            handleProgress(event) {
+                const progressEvent = event.detail;
+                this.progressBar.style.width = `${progressEvent}%`;
+                this.shadow.querySelector('.message').innerHTML = `Progress: ${progressEvent}%`;
+            }
+
+            handleUpdateCompleted() {
+                this.onRemove()
+            }
+
+            handleUpdateFailed() {
+                console.error('Update failed');
+                this.onRemove()
+            }
+
+            handleClose() {
+                this.onRemove()
+            }
+        }
+
+        customElements.define('welcome-screen', WelcomeScreen);
+    </script>
+</head>
+
+<body>
+    <welcome-screen></welcome-screen>
+    <div id="root"></div>
+</body>
+
+</html>

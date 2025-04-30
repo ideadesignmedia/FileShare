@@ -21,9 +21,16 @@ export default defineConfig({
     }
   },
   build: {
-    target: 'esnext', // build for modern browsers supporting top-level await
+    target: 'esnext', // build for modern browsers supporting top-level await,
+    rollupOptions: {
+      output: {
+        entryFileNames: '[name].js',
+        assetFileNames: '[name][extname]'
+      }
+    }
   },
   plugins: [react(), tailwindcss(),],
+  base: './',
   server: {
     port: 3020
   }

@@ -5,9 +5,30 @@
   "main": "main.js",
   "repository": "https://github.com/ideadesignmedia/FileShare.git",
   "author": "IdeaDesignMedia",
-  "license": "GPL3",
+  "license": "GPL-3",
   "private": false,
+  "build": {
+    "appId": "com.ideadesignmedia.fileshare",
+    "files": [
+      "main.js",
+      "build/**/*",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities"
+    },
+    "win": {},
+    "linux": {}
+  },
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
   "devDependencies": {
-    "electron": "^35.1.2"
+    "electron": "^35.1.2",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "mime-types": "^3.0.1"
   }
 }
