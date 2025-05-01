@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
-<widget id="com.ideadesignmedia.fileshare" version="1.0.0" android-versionCode="10" defaultlocale="en-US" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0" xmlns:tools="http://schemas.android.com/tools">
-    <name>FileShare</name>
+<widget android-versionCode="1" defaultlocale="en-US" id="com.ideadesignmedia.fileshare" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:android="http://schemas.android.com/apk/res/android" xmlns:cdv="http://cordova.apache.org/ns/1.0" xmlns:tools="http://schemas.android.com/tools">
+    <name>P2P FileShare</name>
     <description>Peer to Peer file sharing app.</description>
     <author email="info@ideadesignmedia.com" href="https://ideadesignmedia.com">
         IdeaDesignMedia
@@ -8,36 +8,42 @@
     <content src="index.html" />
     <allow-intent href="http://*/*" />
     <allow-intent href="https://*/*" />
+    <access origin="*" />
+    <allow-navigation href="*" />
     <plugin name="@havesource/cordova-plugin-push" spec="3.0.0" />
-    <plugin name="cordova-plugin-whitelist" spec="^1.3.4" />
     <platform name="android">
+        <preference name="KOTLIN_VERSION" value="1.8.22" />
+        <hook src="hooks/after_platform_add/add_network_security_config.js" type="after_platform_add" />
         <preference name="AllowFileAccessFromFileURLs" value="true" />
         <preference name="AllowUniversalAccessFromFileURLs" value="true" />
         <preference name="AndroidPersistentFileLocation" value="Compatibility" />
         <edit-config file="AndroidManifest.xml" mode="merge" target="/manifest">
-            <manifest xmlns:tools="http://schemas.android.com/tools" package="com.ideadesignmedia.fileshare" />
+            <manifest package="com.ideadesignmedia.fileshare" xmlns:tools="http://schemas.android.com/tools" />
         </edit-config>
         <config-file parent="/*" target="AndroidManifest.xml">
+            <application android:hardwareAccelerated="true" android:icon="@mipmap/ic_launcher" android:label="@string/app_name" android:networkSecurityConfig="@xml/network_security_config" android:supportsRtl="true" android:usesCleartextTraffic="true" />
+            <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:node="remove" />
             <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
             <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
             <uses-permission android:name="android.permisson.INTERNET" />
             <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-            <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:node="remove" />
             <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
         </config-file>
         <resource-file src="google-services.json" target="/app/google-services.json" />
-        <preference name="SENDER_ID" value="YOUR_SENDER_ID=project_info.project_number from google-services.json" />
+        <preference name="SENDER_ID" value="google-services.json->project_info.project_number" /><!-- Make sure to update to your sender id -->
     </platform>
     <platform name="ios">
         <preference name="deployment-target" value="12.0" />
         <preference name="UseSwiftLanguageVersion" value="5" />
-        <hook type="after_platform_add" src="hooks/after_platform_add/add_post_install_to_podfile.js" />
-        <hook type="before_build" src="hooks/before_build/set_swift_version.js" />
-        <hook type="after_prepare" src="hooks/after_prepare/ensure_podfile_hook.js" />
-        <hook type="after_prepare" src="hooks/after_prepare/set_cordova_lib_deployment_target.js" />
+        <hook src="hooks/after_platform_add/add_post_install_to_podfile.js" type="after_platform_add" />
+        <hook src="hooks/before_build/set_swift_version.js" type="before_build" />
+        <hook src="hooks/after_prepare/ensure_podfile_hook.js" type="after_prepare" />
+        <hook src="hooks/after_prepare/set_cordova_lib_deployment_target.js" type="after_prepare" />
         <resource-file src="GoogleService-Info.plist" />
         <preference name="iosPersistentFileLocation" value="Library" />
         <preference name="AllowFileAccessFromFileURLs" value="true" />
         <preference name="AllowUniversalAccessFromFileURLs" value="true" />
+        <preference name="UseLegacySwiftLanguageVersion" value="true" />
+        <preference name="UseSwiftLanguageVersion" value="5" />
     </platform>
 </widget>
