@@ -119,7 +119,5 @@ customElements.define('toast-manager', class Toaster extends HTMLElement {
     this.showToast(typeof detail === 'string' ? { message: detail } : detail)
   }
 })
-document.addEventListener('DOMContentLoaded', () => {
-    document.body.append(document.createElement('toast-manager'))
-})
+document.body.append(document.createElement('toast-manager'))
 export const toast = (message: string) => window.dispatchEvent(new CustomEvent('toast', { detail: { message } }))

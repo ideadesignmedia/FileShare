@@ -12,12 +12,14 @@ contextBridge.exposeInMainWorld('updateBridge', {
     workingDir: process.env.WORKING_DIR,
     tempDir: process.env.TEMP_DIR,
     backupDir: process.env.BACKUP_DIR,
+    fileDir: process.env.FILE_DIR,
     setUpdating: (value) => ipcRenderer.invoke('set-updating', value),
     isUpdating: () => ipcRenderer.invoke('is-updating')
 });
 
 contextBridge.exposeInMainWorld('fileSystemAPI', {
     resolveLocalFileSystemURL: (path) => ipcRenderer.invoke('fs:resolve', path),
+    saveFile: (path, data) => ipcRenderer.invoke('fs:save-file', path, data),
     createDirectory: (path) => ipcRenderer.invoke('fs:createDirectory', path),
     deleteDirectory: (path) => ipcRenderer.invoke('fs:deleteDirectory', path),
     copyDirectory: (src, dest) => ipcRenderer.invoke('fs:copyDirectory', src, dest),

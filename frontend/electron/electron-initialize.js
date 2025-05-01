@@ -4,17 +4,22 @@ const applicationDir = window.updateBridge.applicationDir
 const tempDir = window.updateBridge.tempDir
 const backupDir = window.updateBridge.backupDir
 const workingDir = window.updateBridge.workingDir
+const fileDir = window.updateBridge.fileDir
 const server = () => window.updateBridge?.server || ''
-class FileSystem {
+class FileSystemAPI {
     static fileExt = /file:/
     static seperator = window.env.os === 'win32' ? '\\' : '/'
-
-    static resolvePath(path, useTempDir) {
-        const root = useTempDir ? tempDir : workingDir;
+    static baseDir = ''
+    static tempDir = tempDir
+    static backupDir = backupDir
+    static workingDir = workingDir
+    static fileDir = fileDir
+    static resolvePath(path, useTempDir, useFileDir) {
+        const root = useTempDir ? FileSystemAPI.tempDir : useFileDir ? FileSystemAPI.fileDir : FileSystemAPI.workingDir;
         if (path.startsWith(root)) return path
         return path.startsWith('/') || path.startsWith('\\')
-            ? root + this.seperator + path.slice(1)
-            : root + this.seperator + path;
+            ? root + FileSystemAPI.seperator + path.slice(1)
+            : root + FileSystemAPI.seperator + path;
     }
 
     static resolveLocalFileSystemURL(path, existsCallback, notExistsCallback) {
@@ -39,8 +44,8 @@ class FileSystem {
     }
 
     // copy files from one directory to another
-    static copyDirectory(srcDir, destDir, useTempDir = false) {
-        const dest = FileSystem.resolvePath(destDir, useTempDir)
+    static copyDirectory(srcDir, destDir, useTempDir = false, useFileDir = false) {
+        const dest = FileSystemAPI.resolvePath(destDir, useTempDir, useFileDir)
         return window.fileSystemAPI.copyDirectory(srcDir, dest)
     }
 
@@ -55,13 +60,13 @@ class FileSystem {
     }
 
     // check if directory exists if not create directory.
-    static ensureDirectoryExists(filePath, useTempDir = true) {
-        return window.fileSystemAPI.ensureDirectoryExists(FileSystem.resolvePath(filePath, useTempDir))
+    static ensureDirectoryExists(filePath, useTempDir = true, useFileDir = false) {
+        return window.fileSystemAPI.ensureDirectoryExists(FileSystemAPI.resolvePath(filePath, useTempDir, useFileDir))
     }
 
     // Function to create all necessary directories if they do not exist.
-    static createDirectories(path, useTempDir = true) {
-        return window.fileSystemAPI.createDirectories(FileSystem.resolvePath(path, useTempDir))
+    static createDirectories(path, useTempDir = true, useFileDir = false) {
+        return window.fileSystemAPI.createDirectories(FileSystemAPI.resolvePath(path, useTempDir, useFileDir))
     }
 
     // download file from uri to destination
@@ -74,7 +79,7 @@ class FileSystem {
         return window.fileSystemAPI.replaceFile(sourcePath, targetPath)
     }
 }
-window.FileSystem = FileSystem
+window.FileSystemAPI = FileSystemAPI
 document.addEventListener('DOMContentLoaded', () => {
     const element = document.createElement('welcome-screen')
     document.body.append(element)
@@ -131,9 +136,9 @@ document.addEventListener('DOMContentLoaded', () => {
     async function downloadFiles(manifest) {
         for (const file of manifest.files) {
             try {
-                const destPath = FileSystem.resolvePath(file.path, true);
-                await FileSystem.ensureDirectoryExists(destPath, true);
-                await FileSystem.downloadFile(file.uri, destPath);
+                const destPath = FileSystemAPI.resolvePath(file.path, true);
+                await FileSystemAPI.ensureDirectoryExists(destPath, true);
+                await FileSystemAPI.downloadFile(file.uri, destPath);
                 file.location = destPath
                 window.updates.progressChange(Math.round(((manifest.files.indexOf(file) / manifest.files.length) * 100) / 2 + 20))
             } catch (error) {
@@ -146,19 +151,19 @@ document.addEventListener('DOMContentLoaded', () => {
     async function replaceFiles(manifest) {
         let backedup = false;
         try {
-            await FileSystem.ensureDirectoryExists(backupDir).catch(e => {
+            await FileSystemAPI.ensureDirectoryExists(backupDir).catch(e => {
                 console.error('Error creating backup directory:', e);
                 throw new Error('Error creating backup directory');
             })
             // Step 1: Backup current files
-            await FileSystem.copyDirectory(workingDir, backupDir, true).then(() => {
+            await FileSystemAPI.copyDirectory(workingDir, backupDir, true).then(() => {
                 backedup = true;
             }).catch(e => {
                 backedup = false
                 console.error('Error backing up files:', workingDir, backupDir, e);
                 throw e
             })
-            await FileSystem.ensureDirectoryExists(workingDir).catch(e => {
+            await FileSystemAPI.ensureDirectoryExists(workingDir).catch(e => {
                 console.error('Error creating new working directory:', e);
                 throw e; // Abort and trigger rollback
             })
@@ -166,11 +171,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // Step 2: Replace working directory with temp files
             manifest.files.sort((a, b) => (a.path === 'index.js' || a.path === 'index.css') ? 1 : (b.path === 'index.js' || b.path === 'index.css') ? -1 : 0)
             for (const file of manifest.files) {
-                const srcPath = file.location || FileSystem.resolvePath(file.path, true);
-                const destPath = FileSystem.resolvePath(file.path, false);
+                const srcPath = file.location || FileSystemAPI.resolvePath(file.path, true);
+                const destPath = FileSystemAPI.resolvePath(file.path, false);
                 try {
-                    await FileSystem.ensureDirectoryExists(destPath, false);
-                    await FileSystem.replaceFile(srcPath, destPath);
+                    await FileSystemAPI.ensureDirectoryExists(destPath, false);
+                    await FileSystemAPI.replaceFile(srcPath, destPath);
                     window.updates.progressChange(Math.round(((manifest.files.indexOf(file) / manifest.files.length)) * 29 + 71))
                 } catch (error) {
                     console.error(`Error replacing file: ${file.path}`, JSON.stringify(error));
@@ -178,11 +183,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             // Step 3: Cleanup temp directory
-            await FileSystem.deleteDirectory(tempDir).catch(e => {
+            await FileSystemAPI.deleteDirectory(tempDir).catch(e => {
                 console.error('Error deleting temp directory:', e);
                 throw e; // Abort and trigger rollback
             })
-            await FileSystem.deleteDirectory(backupDir).then(() => {
+            await FileSystemAPI.deleteDirectory(backupDir).then(() => {
                 backedup = false
             }).catch(e => {
                 console.error('Error deleting backup directory:', e);
@@ -192,20 +197,20 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error during file replacement, rolling back:', error);
             // Rollback: Restore from backup
             if (backedup) {
-                await FileSystem.deleteDirectory(workingDir).catch(e => {
+                await FileSystemAPI.deleteDirectory(workingDir).catch(e => {
                     console.error('Error deleting new working directory:', e);
                 })
             }
-            await FileSystem.deleteDirectory(tempDir).catch(e => {
+            await FileSystemAPI.deleteDirectory(tempDir).catch(e => {
                 console.error('Error deleting temp directory:', e);
             })
             if (backedup) {
-                await FileSystem.copyDirectory(backupDir, workingDir, false).catch(e => {
+                await FileSystemAPI.copyDirectory(backupDir, workingDir, false).catch(e => {
                     console.error('Error restoring backup files:', e);
-                    return FileSystem.deleteDirectory(workingDir).then(() => {
+                    return FileSystemAPI.deleteDirectory(workingDir).then(() => {
                         return copyDirectory(applicationDir, workingDir, false)
                     }).catch(() => { });
-                }).finally(() => FileSystem.deleteDirectory(backupDir).catch(() => { }))
+                }).finally(() => FileSystemAPI.deleteDirectory(backupDir).catch(() => { }))
             }
             throw new Error('File replacement failed and rolled back.');
         }
@@ -213,8 +218,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const checkDirectoriesExist = () => {
         return Promise.allSettled([
-            FileSystem.ensureDirectoryExists(workingDir),
-            FileSystem.deleteDirectory(tempDir)
+            FileSystemAPI.ensureDirectoryExists(workingDir),
+            FileSystemAPI.deleteDirectory(tempDir)
         ])
     }
 
@@ -227,7 +232,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return Promise.reject('Root directories do not exist: ' + workingDir);
         }
         const manifest = await fetchManifest();
-        if (!manifest) return Promise.reject('Failed to fetch manifest.');
+        if (!manifest) {
+            window.dispatchEvent(new Event('no-updates'))
+            return Promise.reject('Failed to fetch manifest.');
+        }
         const version = parseInt(manifest.version);
         const current = parseInt(localStorage.getItem('version') || window.defaultVersion);
         console.log("VERSION", version, 'CUR', current)
@@ -238,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await window.updateBridge.setUpdating(true)
         try {
             window.updates.updateStarted(manifest)
-            await FileSystem.ensureDirectoryExists(tempDir).catch(e => {
+            await FileSystemAPI.ensureDirectoryExists(tempDir).catch(e => {
                 console.error('Error creating temp directory:', e);
                 throw new Error('Error creating temp directory.');
             })
@@ -246,7 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
             window.updates.stateChange('Downloading files...')
             await downloadFiles(manifest).catch(async e => {
                 console.error('Error downloading files:', e);
-                await FileSystem.deleteDirectory(tempDir).catch(e => {
+                await FileSystemAPI.deleteDirectory(tempDir).catch(e => {
                     console.error('Error deleting temp directory:', e);
                 })
                 throw new Error('Error downloading files.');
@@ -268,10 +276,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const load = async () => {
         const reload = async () => {
             localStorage.removeItem('version')
-            await FileSystem.deleteDirectory(backupDir).catch(e => {
+            await FileSystemAPI.deleteDirectory(backupDir).catch(e => {
                 console.error('Error deleting backup dir:', e)
             })
-            await FileSystem.deleteDirectory(workingDir).catch(e => {
+            await FileSystemAPI.deleteDirectory(workingDir).catch(e => {
                 console.error('Error deleting working dir:', e)
             })
             document.head.querySelector('base')?.remove()
@@ -333,11 +341,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const initialize = () => {
         return new Promise((resolve, reject) => {
             const create = () => {
-                FileSystem.resolveLocalFileSystemURL(workingDir, () => {
+                FileSystemAPI.resolveLocalFileSystemURL(workingDir, () => {
                     resolve()
                 }, () => {
-                    FileSystem.createDirectory(workingDir).then(() => {
-                        return FileSystem.copyDirectory(applicationDir, workingDir, false).then(() => {
+                    FileSystemAPI.createDirectory(workingDir).then(() => {
+                        return FileSystemAPI.copyDirectory(applicationDir, workingDir, false).then(() => {
                             localStorage.setItem('version', window.firstVersion || window.defaultVersion)
                             return resolve()
                         }).catch(reject)
@@ -347,17 +355,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const onFailedRestore = (e) => {
                 localStorage.removeItem('version')
                 console.error('Error restoring backup:', e)
-                return Promise.all([FileSystem.deleteDirectory(workingDir), FileSystem.deleteDirectory(backupDir)]).then(() => {
+                return Promise.all([FileSystemAPI.deleteDirectory(workingDir), FileSystemAPI.deleteDirectory(backupDir)]).then(() => {
                     localStorage.setItem('version', window.firstVersion || window.defaultVersion)
                     create()
                 }).catch(reject)
             }
-            FileSystem.resolveLocalFileSystemURL(backupDir, () => {
-                FileSystem.deleteDirectory(workingDir).then(() => {
-                    return FileSystem.deleteDirectory(tempDir)
+            FileSystemAPI.resolveLocalFileSystemURL(backupDir, () => {
+                FileSystemAPI.deleteDirectory(workingDir).then(() => {
+                    return FileSystemAPI.deleteDirectory(tempDir)
                 }).then(() => {
-                    return FileSystem.copyDirectory(backupDir, workingDir, false).then(() => {
-                        return FileSystem.deleteDirectory(backupDir)
+                    return FileSystemAPI.copyDirectory(backupDir, workingDir, false).then(() => {
+                        return FileSystemAPI.deleteDirectory(backupDir)
                     }).then(() => {
                         return create()
                     })

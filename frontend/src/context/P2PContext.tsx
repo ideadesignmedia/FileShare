@@ -8,10 +8,13 @@ import { compressSync as brotliCompress, decompressSync as brotliDecompress, Def
 import { formatBytes } from '../utils/format';
 import { createDecryptionStream, createEncryptionStream, genSalts, getCTRBase, createDecryptionStreamCTR, createEncryptionStreamCTR } from '../utils/encryption';
 import { deviceId as myDeviceId } from '../constants'
+import { blobToBase64 } from '../utils/base64';
+import device from '../constants/device-browser';
+import { Buffer } from 'buffer';
 const maxMessageSize = 65536 - 300;
 const maxBufferAmount = 16 * 1024 * 1024 - (maxMessageSize + 300)
 export const largeFileSize = 10 * 1024 * 1024; // 10MB
-const numberOfChannels = 4;
+const numberOfChannels = 1;
 export type P2PContextType = {
     sendMessage: (deviceId: string, payload: PeerMessage, requestId?: string, timeout?: number) => Promise<PeerMessage | null>;
     sendFile: (deviceId: string, file: File, fileId: string) => void;
@@ -74,8 +77,15 @@ type PeerBroadCastMessage = {
 
 const P2PContext = createContext<P2PContextType | undefined>(undefined);
 type Parts = { parts: Map<number, Uint8Array>, totalParts: number }
+const checkIfFile = (file: File | ReadableStream): boolean => Boolean(file instanceof File || (
+    file
+    && typeof (file as any).name === 'string'
+    && typeof (file as any).type === 'string'
+    && typeof (file as any).size === 'number'
+    && file instanceof Blob
+))
 export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
-    const { state, confirm } = useAppContext();
+    const { state, confirm, flash } = useAppContext();
     const { send } = useSocket();
     const [autoAcceptFiles, setAutoAcceptFiles] = React.useState(Boolean(localStorage.getItem('auto-accept')))
     const [selectedPeer, setSelectedPeer] = React.useState<string>('');
@@ -345,7 +355,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
 
     const requestFileTransfer = useCallback((deviceId: string, file: File | ReadableStream, fileInfo?: { name: string, type: string, size: number }) => {
         const fileId = crypto.randomUUID();
-        const isFile = file instanceof File
+        const isFile = checkIfFile(file) && !(file instanceof ReadableStream)
         if (!isFile) {
             if (!fileInfo) throw new Error('fileInfo must be provided for ReadableStream file transfers');
         }
@@ -432,14 +442,15 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 reject(new Error(`No open data channels for device ${deviceId}`));
                 return;
             }
-            if (!(file instanceof File)) {
+            const isFile = checkIfFile(file) && !(file instanceof ReadableStream)
+            if (!isFile) {
                 if (!fileInfo) {
                     reject(new Error('fileInfo must be provided for ReadableStream file transfers'));
                     return;
                 }
             }
-            const { name, type, size } = file instanceof File ? file : fileInfo!;
-            const isSmallFile = file instanceof File && size < largeFileSize;
+            const { name, type, size } = isFile ? file : fileInfo!;
+            const isSmallFile = isFile && size < largeFileSize;
             const password = requestedPeers.current.has(deviceId) ? myDeviceId : deviceId
             const { key, iv, encrypt } = isSmallFile ? await createEncrypter(password) : await createEncrypterCTR(password)
             let sentBytes = 0;
@@ -476,7 +487,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             };
 
             const sendSmallFile = async () => {
-                if (!(file instanceof File)) throw new Error('Small file transfer requires a File object');
+                if (!checkIfFile(file)) throw new Error('Small file transfer requires a File object');
                 if (!isSmallFile) throw new Error('not small file')
                 try {
                     messageDataChannel(deviceId, {
@@ -534,7 +545,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         }
                     });
 
-                    const reader = (file instanceof File ? file.stream() : file).pipeThrough(transformStream).getReader();
+                    const reader = (checkIfFile(file) && !(file instanceof ReadableStream) ? file.stream() : file as ReadableStream).pipeThrough(transformStream).getReader();
 
                     const processStream = async () => {
                         while (true) {
@@ -608,6 +619,53 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 } : { [fileId]: { progress: 100, name: fileInfo.name } }
             }
         });
+
+        const saveBlobToFile = async (blob: Blob) => {
+            if ('cordova' in window && 'FileSystemAPI' in window) {
+                return window.FileSystemAPI.ensureDirectoryExists(window.FileSystemAPI.fileDir + fileInfo.name).then(() => {
+                    return new Promise<void>((resolve, reject) => {
+                        window.resolveLocalFileSystemURL(window.FileSystemAPI.fileDir + fileInfo.name, (entry) => {
+                            if (entry) {
+                                reject('File already exists')
+                            } else {
+                                reject('Error...')
+                            }
+                        }, () => {
+                            window.resolveLocalDirectory(window.FileSystemAPI.fileDir).then((dirEntry) => {
+                                if (!dirEntry) return reject('Unable to locate file folder.')
+                                dirEntry.getFile(fileInfo.name, { create: true, exclusive: false }, function (fileEntry) {
+                                    fileEntry.createWriter(function (fileWriter) {
+                                        fileWriter.onwrite = function () {
+                                            flash("Successful file write...");
+                                            resolve()
+                                        };
+                                        fileWriter.onerror = function (e) {
+                                            return reject("Failed file write: " + e.toString())
+                                        };
+                                        fileWriter.write(blob);
+                                    }, reject)
+                                }, (err) => {
+                                    reject(err)
+                                });
+                            }).catch(e => {
+                                reject(e)
+                            })
+                        })
+                    })
+                })
+            } else if ('FileSystemAPI' in window) {
+                const arrayBuffer = await blob.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+                return (window as Window).FileSystemAPI.ensureDirectoryExists((window as Window).FileSystemAPI.resolvePath(fileInfo.name, false, true), false, true).then(() => {
+                    return window.fileSystemAPI.saveFile(window.FileSystemAPI.resolvePath(fileInfo.name, false, true), buffer).then(() => {
+                        flash('Saved file..')
+                    })
+                })
+            } else {
+                throw new Error("Unable to download file")
+            }
+        };
+
         const sendBlob = (blob: Blob) => {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -631,7 +689,11 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 const compressedData = new Uint8Array(decryptedChunks)
                 const decompressedData = brotliDecompress(compressedData);
                 const blob = new Blob([decompressedData], { type: fileInfo.type });
-                sendBlob(blob);
+                if (device.app) {
+                    saveBlobToFile(blob)
+                } else {
+                    sendBlob(blob);
+                }
             } catch (error) {
                 console.error("Error decompressing Brotli data:", error);
             } finally {
@@ -677,7 +739,11 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                 console.error('Error deleting file from IndexedDB', e);
                             })
                             const blob = new Blob(chunks, { type: fileInfo.type });
-                            sendBlob(blob)
+                            if (device.app) {
+                                saveBlobToFile(blob)
+                            } else {
+                                sendBlob(blob);
+                            }
                             return;
                         }
                         chunks.push(value)

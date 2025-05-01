@@ -28,6 +28,7 @@ const userData = app.getPath('userData') || path.join(os.homedir(), 'temporary-e
 const tempDir = path.join(userData, 'temp');
 const backupDir = path.join(userData, 'backup');
 const workingDir = path.join(userData, 'www');
+const fileDir = path.join(userData, 'downloads')
 var updatingApp = false
 
 ipcMain.handle('set-updating', (event, value = false) => {
@@ -35,6 +36,18 @@ ipcMain.handle('set-updating', (event, value = false) => {
 })
 
 ipcMain.handle('is-updating', (event) => updatingApp)
+
+ipcMain.handle('fs:save-file', (event, filePath, data) => {
+  return new Promise((res, rej) => {
+    fs.writeFile(filePath, data, (err) => {
+      if (err) {
+        rej(err)
+      } else {
+        res(true)
+      }
+    });
+  })
+});
 
 // Check if a file or directory exists
 ipcMain.handle('fs:resolve', (event, filePath) => {
@@ -233,6 +246,7 @@ app.whenReady().then(() => {
     process.env.TEMP_DIR = tempDir
     process.env.WORKING_DIR = workingDir
     process.env.SERVER_URL = serverUrl
+    process.env.FILE_DIR = fileDir
     createWindow()
   }).catch(e => {
     console.error('Failed to start server', e)

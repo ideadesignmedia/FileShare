@@ -21,7 +21,9 @@
     "cordova-plugin-file-transfer": "^2.0.0",
     "cordova-plugin-network-information": "^3.0.0",
     "cordova-plugin-networkinterface": "^2.2.0",
-    "cordova-plugin-webserver": "github:bykof/cordova-plugin-webserver"
+    "cordova-plugin-screen-orientation": "^3.0.4",
+    "cordova-plugin-webserver": "github:bykof/cordova-plugin-webserver",
+    "es6-promise-plugin": "^4.2.2"
   },
   "cordova": {
     "platforms": [
@@ -45,7 +47,8 @@
         "IOS_FIREBASE_MESSAGING_VERSION": "10.24.0"
       },
       "cordova-plugin-webserver": {},
-      "cordova-plugin-add-swift-support": {}
+      "cordova-plugin-add-swift-support": {},
+      "cordova-plugin-screen-orientation": {}
     }
   }
 }
