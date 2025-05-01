@@ -14,6 +14,9 @@
         <preference name="AllowFileAccessFromFileURLs" value="true" />
         <preference name="AllowUniversalAccessFromFileURLs" value="true" />
         <preference name="AndroidPersistentFileLocation" value="Compatibility" />
+        <edit-config file="AndroidManifest.xml" mode="merge" target="/manifest">
+            <manifest xmlns:tools="http://schemas.android.com/tools" package="com.ideadesignmedia.fileshare" />
+        </edit-config>
         <config-file parent="/*" target="AndroidManifest.xml">
             <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
             <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />

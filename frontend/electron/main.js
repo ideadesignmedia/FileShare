@@ -8,7 +8,9 @@ const mime = require('mime-types');
 const os = require('os')
 
 process.env.PLATFORM = os.platform()
-
+app.commandLine.appendSwitch('enable-features', 'WebRtcHideLocalIpsWithMdns');
+app.commandLine.appendSwitch('enable-webrtc-hw-encoding');
+app.commandLine.appendSwitch('enable-webrtc-hw-decoding');
 const configuration = path.resolve(path.join(__dirname, './config.json'))
 if (fs.existsSync(configuration)) {
   try {

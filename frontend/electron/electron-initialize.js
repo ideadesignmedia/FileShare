@@ -77,7 +77,6 @@ class FileSystem {
 window.FileSystem = FileSystem
 document.addEventListener('DOMContentLoaded', () => {
     const element = document.createElement('welcome-screen')
-    console.log('Creating welcome screen', element)
     document.body.append(element)
     class Updater extends EventTarget {
         isUpdating = false
@@ -234,7 +233,6 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("VERSION", version, 'CUR', current)
         if (version === current || await window.updateBridge.isUpdating()) {
             window.dispatchEvent(new Event('no-updates'))
-            window.updates.updateCompleted()
             return Promise.resolve();
         }
         await window.updateBridge.setUpdating(true)
