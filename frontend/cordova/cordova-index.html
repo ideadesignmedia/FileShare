@@ -12,7 +12,7 @@
     script-src * 'unsafe-inline' 'unsafe-eval';
   ">
   <script>
-window.defaultVersion = '58'
+window.defaultVersion = '75'
     if (!localStorage.getItem('version')) localStorage.setItem('version', window.defaultVersion);
     window.firstVerion = parseInt(localStorage.getItem('version') || window.defaultVersion);
   </script>
@@ -212,6 +212,21 @@ window.defaultVersion = '58'
     })
   </script>
   <script src="cordova-initialize.js"></script>
+  <style>
+    html {
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+  </style>
 </head>
 
 <body>

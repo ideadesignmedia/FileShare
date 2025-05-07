@@ -9,7 +9,7 @@
   <title>FileShare</title>
   <meta name="description" content="A Peer to Peer file sharing app." />
   <script>
-window.defaultVersion = '58'
+window.defaultVersion = '75'
     if (!localStorage.getItem('version')) localStorage.setItem('version', window.defaultVersion);
     window.firstVerion = parseInt(localStorage.getItem('version') || window.defaultVersion);
     document.addEventListener('DOMContentLoaded', () => {
@@ -35,7 +35,7 @@ window.defaultVersion = '58'
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          height: 100vh;
+          height: 100%;
           width: 100%;
           background: #121212; /* Rich dark theme */
           color: #ffffff; /* Light text color for contrast */
@@ -203,6 +203,21 @@ window.defaultVersion = '58'
     })
   </script>
   <script src="./electron-initialize.js"></script>
+  <style>
+    html {
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+  </style>
 </head>
 
 <body>

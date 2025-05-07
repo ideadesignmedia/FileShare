@@ -21,6 +21,7 @@
     "cordova-plugin-file-transfer": "^2.0.0",
     "cordova-plugin-network-information": "^3.0.0",
     "cordova-plugin-networkinterface": "^2.2.0",
+    "cordova-plugin-save-dialog": "^2.0.1",
     "cordova-plugin-screen-orientation": "^3.0.4",
     "cordova-plugin-webserver": "github:bykof/cordova-plugin-webserver",
     "es6-promise-plugin": "^4.2.2"
@@ -48,7 +49,8 @@
       },
       "cordova-plugin-webserver": {},
       "cordova-plugin-add-swift-support": {},
-      "cordova-plugin-screen-orientation": {}
+      "cordova-plugin-screen-orientation": {},
+      "cordova-plugin-save-dialog": {}
     }
   }
 }

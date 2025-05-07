@@ -24,18 +24,20 @@
     /* Root layout */
     html {
         height: 100vh;
+        margin: 0;
+        padding: 0;
+        @apply bg-white flex flex-col overflow-hidden;
     }
     body {
         height: 100%;
         max-height: 100%;
         overflow: hidden;
-    }
-    
-    /* Body defaults */
-    body {
-        @apply bg-white text-black leading-relaxed flex flex-col relative;
+        padding-top: env(safe-area-inset-top);
+        display: flex;
+        flex-direction: column;
         margin: 0;
         padding: 0;
+        @apply bg-blue-700 text-black leading-relaxed flex flex-col relative;
     }
     
     /* Full-height root container */
@@ -50,6 +52,9 @@
         overflow-x: hidden;
         overflow-y: auto;
         position: relative;
+        margin: 0;
+        padding: 0;
+        @apply bg-white text-black;
     }
     
     /* Headings */
@@ -81,7 +86,7 @@
     }
     
     /* Paragraphs */
-    p {
+    p, span {
         @apply text-base text-inherit leading-relaxed;
     }
     
@@ -144,4 +149,11 @@
         @apply max-w-full
         h-auto;
     }
+}
+body {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+    padding-top: env(safe-area-inset-top)!important;
+    padding-bottom: env(safe-area-inset-bottom)!important;
 }

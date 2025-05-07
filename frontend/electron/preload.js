@@ -28,5 +28,6 @@ contextBridge.exposeInMainWorld('fileSystemAPI', {
     ensureDirectoryExists: (path) => ipcRenderer.invoke('fs:ensureDir', path),
     createDirectories: (path) => ipcRenderer.invoke('fs:createDirs', path),
     downloadFile: (url, dest) => ipcRenderer.invoke('fs:downloadFile', url, dest),
-    replaceFile: (src, dest) => ipcRenderer.invoke('fs:replaceFile', src, dest)
+    replaceFile: (src, dest) => ipcRenderer.invoke('fs:replaceFile', src, dest),
+    moveFile: (srcPath) => ipcRenderer.invoke('move-file', srcPath)
 });

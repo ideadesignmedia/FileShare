@@ -1,8 +1,8 @@
 import React, { useContext, createContext, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSocket } from './SocketContext';
-import { emitter, useAppContext } from './AppContext';
+import { emit, emitter, useAppContext } from './AppContext';
 import { rtcOptions } from '../constants';
-import { saveChunkToIndexedDB, deleteFileFromIndexedDB, createIndexedDBChunkStream } from '../utils/indexed-db';
+import { saveChunkToIndexedDB, deleteFileFromIndexedDB, createIndexedDBChunkStream, saveFileMetadata, deleteFileMetadata } from '../utils/indexed-db';
 import { BSON } from 'bson';
 import { compressSync as brotliCompress, decompressSync as brotliDecompress, Deflate, Inflate } from "fflate";
 import { formatBytes } from '../utils/format';
@@ -11,6 +11,7 @@ import { deviceId as myDeviceId } from '../constants'
 import { blobToBase64 } from '../utils/base64';
 import device from '../constants/device-browser';
 import { Buffer } from 'buffer';
+import { downloadBlob } from '../utils/download-file';
 const maxMessageSize = 65536 - 300;
 const maxBufferAmount = 16 * 1024 * 1024 - (maxMessageSize + 300)
 export const largeFileSize = 10 * 1024 * 1024; // 10MB
@@ -32,7 +33,9 @@ export type P2PContextType = {
     selectedPeer: string
     setSelectedPeer: React.Dispatch<React.SetStateAction<string>>
     setAutoAcceptFiles: React.Dispatch<React.SetStateAction<boolean>>
-    autoAcceptFiles: boolean
+    setAutoDownloadFiles: React.Dispatch<React.SetStateAction<boolean>>
+    autoAcceptFiles: boolean,
+    autoDownloadFiles: boolean
 };
 
 export type PeerMessage = { requestId?: string } & (
@@ -88,6 +91,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
     const { state, confirm, flash } = useAppContext();
     const { send } = useSocket();
     const [autoAcceptFiles, setAutoAcceptFiles] = React.useState(Boolean(localStorage.getItem('auto-accept')))
+    const [autoDownloadFiles, setAutoDownloadFiles] = React.useState(true /* Boolean(localStorage.getItem('auto-download')) */)
     const [selectedPeer, setSelectedPeer] = React.useState<string>('');
     const peerConnections = useRef<{ [deviceId: string]: RTCPeerConnection }>({});
     const requestedPeers = useRef<Set<string>>(new Set());
@@ -133,6 +137,13 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             localStorage.removeItem('auto-accept')
         }
     }, [autoAcceptFiles])
+    useEffect(() => {
+        if (autoDownloadFiles) {
+            localStorage.setItem('auto-download', 'true')
+        } else {
+            localStorage.removeItem('auto-download')
+        }
+    }, [autoDownloadFiles])
     //ctr for large files because it allows for streaming while encrypting however just encrypt the full file for the small ones.
     const createEncrypter = useCallback(async (password: string): Promise<{ key: Uint8Array, iv: Uint8Array, encrypt: (chunk: Uint8Array) => Promise<Uint8Array> }> => {
         const { salt: key, iv } = genSalts()
@@ -182,83 +193,9 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         return Promise.resolve(null);
     };
 
-    const addDataChannel = useCallback((deviceId: string) => {
-        const peerConnection = peerConnections.current[deviceId];
-        if (!peerConnection) throw new Error(`No peer connection for device ${deviceId}`);
-        if (!dataChannels.current[deviceId]) {
-            dataChannels.current[deviceId] = [];
-        }
-        const dataChannel = peerConnection.createDataChannel(`fileChannel-${Math.random().toString(36).substring(4)}`);
-        dataChannels.current[deviceId].push(dataChannel)
-        setupDataChannel(dataChannel, deviceId);
-    }, [])
-
-    const createPeerConnection = useCallback((deviceId: string, isInitiator: boolean) => {
-        if (disconnectionCount.current[deviceId] > 3) {
-            requestedPeers.current.delete(deviceId);
-            disconnectPeerConnection(deviceId);
-            return
-        }
-        requestedPeers.current.add(deviceId);
-        if (peerConnections.current[deviceId]) {
-            return peerConnections.current[deviceId];
-        }
-        const peerConnection = new RTCPeerConnection(rtcOptions);
-        peerConnections.current[deviceId] = peerConnection;
-
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                sendMessage(deviceId, { type: 'webrtc-ice', data: event.candidate });
-            }
-        };
-
-        peerConnection.ondatachannel = (event) => {
-            if (!dataChannels.current[deviceId]) {
-                dataChannels.current[deviceId] = [];
-            }
-            dataChannels.current[deviceId].push(event.channel)
-            setupDataChannel(event.channel, deviceId);
-        };
-
-        peerConnection.onconnectionstatechange = (e) => {
-            if (peerConnection.connectionState === "connected") {
-                disconnectionCount.current[deviceId] = 0;
-                setRtcPeers(prev => ({ ...prev, [deviceId]: true }));
-            } else if (["disconnected", "closed", "failed"].includes(peerConnection.connectionState)) {
-                disconnectionCount.current[deviceId] = (disconnectionCount.current[deviceId] || 0) + 1;
-                if (peerConnection.connectionState === 'failed' && requestedPeers.current.has(deviceId)) {
-                    delete peerConnections.current[deviceId]
-                    delete dataChannels.current[deviceId];
-                    setRtcPeers(prev => {
-                        const updated = { ...prev };
-                        delete updated[deviceId];
-                        return updated;
-                    });
-                    createPeerConnection(deviceId, true);
-                } else {
-                    disconnectPeerConnection(deviceId);
-                }
-            }
-        };
 
 
-        if (isInitiator) {
-            for (let i = 0; i < numberOfChannels; i++) {
-                addDataChannel(deviceId)
-            }
-            peerConnection.createOffer().then((offer) => {
-                peerConnection.setLocalDescription(offer).then(() => {
-                    sendMessage(deviceId, { type: "webrtc-offer", data: offer });
-                });
-            }).catch(console.error);
-        } else {
-            setSelectedPeer(peer => {
-                if (peer !== deviceId) return deviceId
-                return peer
-            })
-        }
-        return peerConnection;
-    }, []);
+
 
     const disconnectPeerConnection = useCallback((deviceId: string) => {
         const peerConnection = peerConnections.current[deviceId];
@@ -317,18 +254,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
     }, [])
 
 
-    const setupDataChannel = useCallback((channel: RTCDataChannel, deviceId: string) => {
-        channel.onopen = () => { }
-        channel.onclose = () => {
-            disconnectPeerConnection(deviceId);
-        }
-        channel.onmessage = (event) => {
-            onDataChannelMessage(deviceId, event.data);
-        }
-        channel.onerror = (error) => {
-            console.error(`DataChannel error with ${deviceId}:`, error);
-        };
-    }, [])
+
 
     const messageDataChannel = useCallback((deviceId: string, message: FileMessage) => {
         const channels = dataChannels.current[deviceId];
@@ -608,6 +534,8 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
 
     const downloadFile = useCallback(async (deviceId: string, fileId: string) => {
         const fileInfo = receivedFiles.current[deviceId][fileId];
+        delete receivedFiles.current[deviceId][fileId];
+        if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
         if (fileInfo.finalized) return console.warn(`File "${fileInfo.name}" already finalized.`);
         fileInfo.finalized = true
         setReceivedFileProgress(prev => {
@@ -619,12 +547,11 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 } : { [fileId]: { progress: 100, name: fileInfo.name } }
             }
         });
-
         const saveBlobToFile = async (blob: Blob) => {
             if ('cordova' in window && 'FileSystemAPI' in window) {
-                return window.FileSystemAPI.ensureDirectoryExists(window.FileSystemAPI.fileDir + fileInfo.name).then(() => {
+                return window.FileSystemAPI.ensureDirectoryExists(window.FileSystemAPI.fileDir).then(() => {
                     return new Promise<void>((resolve, reject) => {
-                        window.resolveLocalFileSystemURL(window.FileSystemAPI.fileDir + fileInfo.name, (entry) => {
+                        window.resolveLocalFileSystemURL(window.FileSystemAPI.fileDir, (entry) => {
                             if (entry) {
                                 reject('File already exists')
                             } else {
@@ -636,8 +563,13 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                 dirEntry.getFile(fileInfo.name, { create: true, exclusive: false }, function (fileEntry) {
                                     fileEntry.createWriter(function (fileWriter) {
                                         fileWriter.onwrite = function () {
-                                            flash("Successful file write...");
-                                            resolve()
+                                            saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, fileEntry.nativeURL, Date.now(), false).then(() => {
+                                                flash(`Saved file: ${fileInfo.name}`)
+                                                resolve()
+                                            }).catch(e => {
+                                                flash(`Failed to save metadata!`)
+                                                return reject(e)
+                                            })
                                         };
                                         fileWriter.onerror = function (e) {
                                             return reject("Failed file write: " + e.toString())
@@ -658,26 +590,41 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 const buffer = Buffer.from(arrayBuffer);
                 return (window as Window).FileSystemAPI.ensureDirectoryExists((window as Window).FileSystemAPI.resolvePath(fileInfo.name, false, true), false, true).then(() => {
                     return window.fileSystemAPI.saveFile(window.FileSystemAPI.resolvePath(fileInfo.name, false, true), buffer).then(() => {
-                        flash('Saved file..')
+                        return saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, window.FileSystemAPI.resolvePath(fileInfo.name, false, true), Date.now(), false).then(() => {
+                            flash(`Saved file: ${fileInfo.name}`)
+                        }).catch(e => {
+                            flash(`Failed to save metadata!`)
+                            delete receivedFiles.current[deviceId][fileId];
+                            if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
+                            throw e
+                        })
                     })
                 })
             } else {
                 throw new Error("Unable to download file")
             }
         };
-
-        const sendBlob = (blob: Blob) => {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.target = '_blank';
-            a.download = fileInfo.name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            delete receivedFiles.current[deviceId][fileId];
-            if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
+        const saveChunksToFile = (chunks: Uint8Array[]) => {
+            saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, '', Date.now(), true).then(() => {
+                const proms = []
+                for (let i = 0; i < chunks.length; i++) {
+                    proms.push(saveChunkToIndexedDB(fileId, i + 1, chunks[i]))
+                }
+                return Promise.all(proms).then(() => {
+                    flash('File Saved!')
+                    emit('file-saved', fileId)
+                }).catch(e => {
+                    flash(`Failed to save file!`)
+                    Promise.allSettled([
+                        deleteFileFromIndexedDB(fileId),
+                        deleteFileMetadata(fileId)
+                    ]).catch(() => {}).finally(() => {
+                        throw e
+                    })
+                })
+            })
         }
+
         if (fileInfo.size < largeFileSize) {
             const encryptedChunks = Array.from(receivedChunks.current[deviceId][fileId].entries()).sort(([indexA], [indexB]) => {
                 return indexA - indexB;
@@ -688,11 +635,23 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 const decryptedChunks = await fileInfo.decrypt(new Uint8Array(encryptedChunks), 0) || new Uint8Array()
                 const compressedData = new Uint8Array(decryptedChunks)
                 const decompressedData = brotliDecompress(compressedData);
-                const blob = new Blob([decompressedData], { type: fileInfo.type });
-                if (device.app) {
-                    saveBlobToFile(blob)
+                if (autoDownloadFiles || device.app) {
+                    const blob = new Blob([decompressedData], { type: fileInfo.type });
+                    if (device.app) {
+                        saveBlobToFile(blob)
+                    } else {
+                        downloadBlob(blob, fileInfo.name);
+                    }
                 } else {
-                    sendBlob(blob);
+                    const decompressedChunks: Uint8Array[] = []
+                    for (let i = 0; i < decompressedData.byteLength; i += maxMessageSize) {
+                        decompressedChunks.push(new Uint8Array(
+                            decompressedData.buffer,
+                            decompressedData.byteOffset + i,
+                            Math.min(maxMessageSize, decompressedData.byteLength - i)
+                        ));
+                    }
+                    saveChunksToFile(decompressedChunks)
                 }
             } catch (error) {
                 console.error("Error decompressing Brotli data:", error);
@@ -735,15 +694,29 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 const read = () => {
                     reader.read().then(({ done, value }) => {
                         if (done) {
-                            deleteFileFromIndexedDB(fileId).catch(e => {
-                                console.error('Error deleting file from IndexedDB', e);
-                            })
-                            const blob = new Blob(chunks, { type: fileInfo.type });
-                            if (device.app) {
-                                saveBlobToFile(blob)
-                            } else {
-                                sendBlob(blob);
+                            const finalize = () => {
+                                if (autoDownloadFiles || device.app) {
+                                    const blob = new Blob(chunks, { type: fileInfo.type });
+                                    if (device.app) {
+                                        saveBlobToFile(blob)
+                                    } else {
+                                        downloadBlob(blob, fileInfo.name);
+                                    }
+                                } else {
+                                    saveChunksToFile(chunks)
+                                }
                             }
+                            deleteFileFromIndexedDB(fileId).then(() => {
+                                finalize()
+                            }).catch(e => {
+                                console.error('Error deleting file from IndexedDB', e);
+                                if (!device.app && !autoDownloadFiles) {
+                                    throw new Error('Failed to delete from indexededDB. Did not save.')
+                                }
+                                //mutate fileId here to ensure that the decompressed chunks are stored to a unique fileId. The old chunks will be deleted on next launch.
+                                fileId = crypto.randomUUID()
+                                finalize()
+                            })
                             return;
                         }
                         chunks.push(value)
@@ -753,7 +726,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 read()
             })
         }
-    }, [])
+    }, [autoDownloadFiles])
 
     const onDataChannelMessage = useCallback((deviceId: string, data: any) => {
         let message: FileMessage
@@ -945,12 +918,102 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             default:
                 console.warn("Unknown JSON message type:", message);
         }
-    }, [])
+    }, [downloadFile])
+
+    const setupDataChannel = useCallback((channel: RTCDataChannel, deviceId: string) => {
+        channel.onopen = () => { }
+        channel.onclose = () => {
+            disconnectPeerConnection(deviceId);
+        }
+        channel.onmessage = (event) => {
+            onDataChannelMessage(deviceId, event.data);
+        }
+        channel.onerror = (error) => {
+            console.error(`DataChannel error with ${deviceId}:`, error);
+        };
+    }, [onDataChannelMessage])
+
+    const addDataChannel = useCallback((deviceId: string) => {
+        const peerConnection = peerConnections.current[deviceId];
+        if (!peerConnection) throw new Error(`No peer connection for device ${deviceId}`);
+        if (!dataChannels.current[deviceId]) {
+            dataChannels.current[deviceId] = [];
+        }
+        const dataChannel = peerConnection.createDataChannel(`fileChannel-${Math.random().toString(36).substring(4)}`);
+        dataChannels.current[deviceId].push(dataChannel)
+        setupDataChannel(dataChannel, deviceId);
+    }, [setupDataChannel])
+    const createPeerConnection = useCallback((deviceId: string, isInitiator: boolean) => {
+        if (disconnectionCount.current[deviceId] > 3) {
+            requestedPeers.current.delete(deviceId);
+            disconnectPeerConnection(deviceId);
+            return
+        }
+        requestedPeers.current.add(deviceId);
+        if (peerConnections.current[deviceId]) {
+            return peerConnections.current[deviceId];
+        }
+        const peerConnection = new RTCPeerConnection(rtcOptions);
+        peerConnections.current[deviceId] = peerConnection;
+
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                sendMessage(deviceId, { type: 'webrtc-ice', data: event.candidate });
+            }
+        };
+
+        peerConnection.ondatachannel = (event) => {
+            if (!dataChannels.current[deviceId]) {
+                dataChannels.current[deviceId] = [];
+            }
+            dataChannels.current[deviceId].push(event.channel)
+            setupDataChannel(event.channel, deviceId);
+        };
+
+        peerConnection.onconnectionstatechange = (e) => {
+            if (peerConnection.connectionState === "connected") {
+                disconnectionCount.current[deviceId] = 0;
+                setRtcPeers(prev => ({ ...prev, [deviceId]: true }));
+            } else if (["disconnected", "closed", "failed"].includes(peerConnection.connectionState)) {
+                disconnectionCount.current[deviceId] = (disconnectionCount.current[deviceId] || 0) + 1;
+                if (peerConnection.connectionState === 'failed' && requestedPeers.current.has(deviceId)) {
+                    delete peerConnections.current[deviceId]
+                    delete dataChannels.current[deviceId];
+                    setRtcPeers(prev => {
+                        const updated = { ...prev };
+                        delete updated[deviceId];
+                        return updated;
+                    });
+                    createPeerConnection(deviceId, true);
+                } else {
+                    disconnectPeerConnection(deviceId);
+                }
+            }
+        };
+
+
+        if (isInitiator) {
+            for (let i = 0; i < numberOfChannels; i++) {
+                addDataChannel(deviceId)
+            }
+            peerConnection.createOffer().then((offer) => {
+                peerConnection.setLocalDescription(offer).then(() => {
+                    sendMessage(deviceId, { type: "webrtc-offer", data: offer });
+                });
+            }).catch(console.error);
+        } else {
+            setSelectedPeer(peer => {
+                if (peer !== deviceId) return deviceId
+                return peer
+            })
+        }
+        return peerConnection;
+    }, [addDataChannel]);
 
     const onMessage = useCallback(async (deviceId: string, data: PeerMessage) => {
 
         if (data.requestId && emitter.listeners[data.requestId]) {
-            emitter.emit(data.requestId, data);
+            emit(data.requestId, data);
         } else {
             switch (data.type) {
                 case "file-metadata": {
@@ -1095,7 +1158,9 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             cancelUpload,
             sentFileProgress,
             autoAcceptFiles,
-            setAutoAcceptFiles
+            autoDownloadFiles,
+            setAutoAcceptFiles,
+            setAutoDownloadFiles
         }}>
             {children}
         </P2PContext.Provider>

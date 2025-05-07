@@ -194,11 +194,29 @@ ipcMain.handle('fs:replaceFile', (event, sourcePath, targetPath) => {
       });
   });
 });
-
+ipcMain.handle('move-file', async (event, sourcePath) => {
+  const { filePath, canceled } = await dialog.showSaveDialog({
+      title: 'Save File As',
+      defaultPath: path.basename(sourcePath),
+  });
+  if (!canceled && filePath) {
+    return new Promise((res, rej) => {
+      fs.rename(sourcePath, filePath, (err) => {
+          if (err) {
+              return rej('Failed to move file: ' + err.toString());
+          } else {
+             return res(true)
+          }
+      });
+    })
+  } else {
+    return Promise.reject("Failed to move file")
+  }
+})
 function createWindow() {
   const win = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 900,
+    height: 900,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

@@ -428,7 +428,7 @@ interface FileSystem {
 * An abstract interface representing entries in a file system,
 * each of which may be a File or DirectoryEntry.
 */
-interface Entry {
+export interface Entry {
   /** Entry is a file. */
   isFile: boolean;
   /** Entry is a directory. */
@@ -520,7 +520,7 @@ interface Metadata {
 }
 
 /** This interface represents a directory on a file system. */
-interface DirectoryEntry extends Entry {
+export interface DirectoryEntry extends Entry {
   /**
    * Creates a new DirectoryReader to read Entries from this Directory.
    */
@@ -603,7 +603,7 @@ interface DirectoryReader {
 }
 
 /** This interface represents a file on a file system. */
-interface FileEntry extends Entry {
+export interface FileEntry extends Entry {
   /**
    * Creates a new FileWriter associated with the file that this FileEntry represents.
    * @param successCallback A callback that is called with the new FileWriter.
@@ -804,7 +804,8 @@ declare global {
       ensureDirectoryExists: (path: string) => Promise<boolean>,
       createDirectories: (path: string) => Promise<boolean>,
       downloadFile: (url: string, dest: string) => Promise<boolean>,
-      replaceFile: (src: string, dest: string) => Promise<boolean>
+      replaceFile: (src: string, dest: string) => Promise<boolean>,
+      moveFile: (src: string) => Promise<boolean>
     }
   }
 }

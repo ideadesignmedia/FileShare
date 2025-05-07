@@ -6,6 +6,7 @@ import AutoAccept from './AutoAccept';
 import device, { deviceTypes } from '../constants/device-browser';
 import icons from './icons';
 import Button from './Button';
+import AutoDownload from './AutoDownload';
 
 interface HeaderProps {
 
@@ -23,6 +24,7 @@ const Header: React.FC<HeaderProps> = ({ }) => {
         </div>
         <PeerSelector />
         <AutoAccept/>
+        {false && <AutoDownload/>}
         <LogOut />
         </>
     }, [])
