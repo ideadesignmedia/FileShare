@@ -27,7 +27,7 @@ const Header: React.FC<HeaderProps> = ({ }) => {
             </div>
             <PeerSelector />
             <AutoAccept />
-            <AutoDownload />
+            {!device.app && <AutoDownload />}
             <Button onClick={() => {
                 addPopup('saved-files')
             }}>Files ({files.length})</Button>

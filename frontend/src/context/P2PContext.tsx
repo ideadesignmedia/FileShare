@@ -612,7 +612,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             }
         };
         const saveChunksToFile = (chunks: Uint8Array[]) => {
-            console.log('Storing chunks', chunks.length)
             saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, '', Date.now(), true).then(async () => {
                 try {
                     for (let i = 0; i < chunks.length; i++) {
@@ -697,7 +696,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 const read = () => {
                     reader.read().then(({ done, value }) => {
                         if (done) {
-                            console.log("READ CHUNKS", chunks.length)
                             const finalize = () => {
                                 if (autoDownloadFiles || device.app) {
                                     const blob = new Blob(chunks, { type: fileInfo.type });
