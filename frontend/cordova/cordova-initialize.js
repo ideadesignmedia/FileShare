@@ -255,7 +255,7 @@ const API_HOST = 'https://fileshare.ideadesignmedia.com'
                         );
                     },
                     () => {
-                        resolve(); // File doesn't exist, so it's safe to proceed.
+                        resolve();
                     }
                 );
             });
@@ -264,9 +264,13 @@ const API_HOST = 'https://fileshare.ideadesignmedia.com'
         static ensureDirectoryExists(filePath, temp = true, files = false) {
             return new Promise((resolve, reject) => {
                 window.resolveLocalFileSystemURL(
-                    filePath.substring(0, filePath.lastIndexOf('/')),
+                    filePath === tempDir || filePath === workingDir || filePath === fileDir ?
+                    filePath
+                    : filePath.substring(0, filePath.lastIndexOf('/')),
                     () => resolve(),
-                    () => FileSystemAPI.createDirectories(filePath, temp, files).then(resolve).catch(reject)
+                    () => {
+                        FileSystemAPI.createDirectories(filePath, temp, files).then(resolve).catch(reject)
+                    }
                 );
             });
         }
@@ -274,11 +278,11 @@ const API_HOST = 'https://fileshare.ideadesignmedia.com'
         // Function to create necessary directories
         static createDirectories(path, temp = true, files = false) {
             return new Promise((resolve, reject) => {
-                if (path === tempDir || path === workingDir || path === backupDir) {
+                if (path === tempDir || path === workingDir || path === backupDir || path === fileDir) {
                     return FileSystemAPI.createDirectory(path).then(resolve).catch(reject);
                 }
                 const baseDir = temp ? tempDir : files ? fileDir : workingDir
-                const directories = path.replace(baseDir, '').split('/').slice(0, -1).filter(a => a && !FileSystemAPI.fileExt.test(a)); // Exclude the file name
+                const directories = path.replace(baseDir, '').split('/').slice(0, -1).filter((a,i, ar) => i === ar.length - 1 && !FileSystemAPI.fileExt.test(a));
                 const createNext = (rootDir, dirs) => {
                     if (!dirs.length) {
                         return resolve();
@@ -380,19 +384,23 @@ const API_HOST = 'https://fileshare.ideadesignmedia.com'
     }
     window.FileSystemAPI = FileSystemAPI
     window.resolveLocalFile = (uri) => {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             window.resolveLocalFileSystemURL(uri, (entry) => {
-                if (entry.isFile) return resolve(entry)
-                return resolve(null)
-            }, (err) => reject(err))
+                if (entry.isFile) resolve(entry)
+                else resolve(null)
+            }, () => {
+                resolve(null)
+            })
         })
     }
     window.resolveLocalDirectory = (uri) => {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             window.resolveLocalFileSystemURL(uri, (entry) => {
-                if (entry.isDirectory) return resolve(entry)
-                return resolve(null)
-            }, (err) => reject(err))
+                if (entry.isDirectory) resolve(entry)
+                else resolve(null)
+            }, () => {
+                resolve(null)
+            })
         })
     }
 
@@ -726,13 +734,13 @@ const API_HOST = 'https://fileshare.ideadesignmedia.com'
                             return new Promise((res, rej) => {
                                 window.resolveLocalFileSystemURL(workingDir, () => {
                                     console.error()
-                                    return rej('Failed to delete working dir, please restart the app')
+                                    rej('Failed to delete working dir, please restart the app')
                                 }, () => {
                                     window.resolveLocalFileSystemURL(backupDir, () => {
                                         console.error()
-                                        return rej('Failed to delete backup, please restart the app')
+                                        rej('Failed to delete backup, please restart the app')
                                     }, () => {
-                                        return res()
+                                        res()
                                     })
                                 })
                             })

@@ -7,7 +7,7 @@ customElements.define('toast-manager', class Toaster extends HTMLElement {
   connectedCallback() {
     this.shadow.innerHTML = `<style>
           * {
-            --toast-bg: #000;
+            --toast-bg: blue;
             --toast-color: #fff;
             --toast-success-bg: #000;
             --toast-success-color: #fff;

@@ -8,14 +8,13 @@ import { compressSync as brotliCompress, decompressSync as brotliDecompress, Def
 import { formatBytes } from '../utils/format';
 import { createDecryptionStream, createEncryptionStream, genSalts, getCTRBase, createDecryptionStreamCTR, createEncryptionStreamCTR } from '../utils/encryption';
 import { deviceId as myDeviceId } from '../constants'
-import { blobToBase64 } from '../utils/base64';
 import device from '../constants/device-browser';
 import { Buffer } from 'buffer';
-import { downloadBlob } from '../utils/download-file';
+import { downloadBlob } from '../utils/handle-file';
 const maxMessageSize = 65536 - 300;
 const maxBufferAmount = 16 * 1024 * 1024 - (maxMessageSize + 300)
 export const largeFileSize = 10 * 1024 * 1024; // 10MB
-const numberOfChannels = 1;
+const numberOfChannels = 4;
 export type P2PContextType = {
     sendMessage: (deviceId: string, payload: PeerMessage, requestId?: string, timeout?: number) => Promise<PeerMessage | null>;
     sendFile: (deviceId: string, file: File, fileId: string) => void;
@@ -87,31 +86,29 @@ const checkIfFile = (file: File | ReadableStream): boolean => Boolean(file insta
     && typeof (file as any).size === 'number'
     && file instanceof Blob
 ))
+type ReceivedFileInfo = {
+    name: string;
+    type: string,
+    size: number,
+    progress: number,
+    chunkCount: number,
+    chunksReceived: number,
+    finalized: boolean,
+    decrypt: ((chunk: Uint8Array) => Promise<Uint8Array>) | ((chunk: Uint8Array, index: number) => Promise<Uint8Array>)
+}
 export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
     const { state, confirm, flash } = useAppContext();
     const { send } = useSocket();
     const [autoAcceptFiles, setAutoAcceptFiles] = React.useState(Boolean(localStorage.getItem('auto-accept')))
-    const [autoDownloadFiles, setAutoDownloadFiles] = React.useState(true /* Boolean(localStorage.getItem('auto-download')) */)
+    const [autoDownloadFiles, setAutoDownloadFiles] = React.useState(Boolean(localStorage.getItem('auto-download')))
     const [selectedPeer, setSelectedPeer] = React.useState<string>('');
     const peerConnections = useRef<{ [deviceId: string]: RTCPeerConnection }>({});
     const requestedPeers = useRef<Set<string>>(new Set());
     const dataChannels = useRef<{ [deviceId: string]: RTCDataChannel[] }>({});
     const nextChannelIndex = useRef<{ [deviceId: string]: number }>({});
     const disconnectionCount = useRef<{ [deviceId: string]: number }>({});
-    const receivedFiles = useRef<{
-        [deviceId: string]: {
-            [fileId: string]: {
-                name: string;
-                type: string,
-                size: number,
-                progress: number,
-                chunkCount: number,
-                chunksReceived: number,
-                finalized: boolean,
-                decrypt: ((chunk: Uint8Array) => Promise<Uint8Array>) | ((chunk: Uint8Array, index: number) => Promise<Uint8Array>)
-            }
-        }
-    }>({});
+    const receivedFiles = useRef<{ [deviceId: string]: { [fileId: string]: ReceivedFileInfo } }>({});
+    const receivedFilePromises = useRef<{ [deviceId: string]: { [fileId: string]: Promise<ReceivedFileInfo> } }>({})
     const receivedChunks = useRef<{ [deviceId: string]: { [fileId: string]: Map<number, Parts> } }>({});
     const currentTransfers = useRef<{ [deviceId: string]: { [fileId: string]: 'uploading' | 'paused' | 'cancelled' } }>({});
     const pausedTransfers = useRef<{ [deviceId: string]: { [fileId: string]: boolean } }>({});
@@ -229,6 +226,9 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         if (receivedFiles.current[deviceId]) {
             delete receivedFiles.current[deviceId];
         }
+        if (receivedFilePromises.current[deviceId]) {
+            delete receivedFilePromises.current[deviceId]
+        }
         if (receivedChunks.current[deviceId]) {
             delete receivedChunks.current[deviceId];
         }
@@ -321,6 +321,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         messageDataChannel(deviceId, { type: "file-cancel", fileId });
         delete receivedChunks.current[deviceId]?.[fileId];
         delete receivedFiles.current[deviceId]?.[fileId];
+        delete receivedFilePromises.current[deviceId]?.[fileId];
         delete pausedTransfers.current[deviceId]?.[fileId];
         setReceivedFileProgress(prev => {
             if (!prev[deviceId]) return prev;
@@ -535,7 +536,9 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
     const downloadFile = useCallback(async (deviceId: string, fileId: string) => {
         const fileInfo = receivedFiles.current[deviceId][fileId];
         delete receivedFiles.current[deviceId][fileId];
+        delete receivedFilePromises.current[deviceId][fileId]
         if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
+        if (Object.keys(receivedFilePromises.current[deviceId]).length === 0) delete receivedFilePromises.current[deviceId];
         if (fileInfo.finalized) return console.warn(`File "${fileInfo.name}" already finalized.`);
         fileInfo.finalized = true
         setReceivedFileProgress(prev => {
@@ -549,9 +552,9 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         });
         const saveBlobToFile = async (blob: Blob) => {
             if ('cordova' in window && 'FileSystemAPI' in window) {
-                return window.FileSystemAPI.ensureDirectoryExists(window.FileSystemAPI.fileDir).then(() => {
+                return window.FileSystemAPI.ensureDirectoryExists(window.FileSystemAPI.fileDir, false, true).then(() => {
                     return new Promise<void>((resolve, reject) => {
-                        window.resolveLocalFileSystemURL(window.FileSystemAPI.fileDir, (entry) => {
+                        window.resolveLocalFileSystemURL(window.FileSystemAPI.resolvePath(fileInfo.name, false, true), (entry) => {
                             if (entry) {
                                 reject('File already exists')
                             } else {
@@ -559,12 +562,15 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                             }
                         }, () => {
                             window.resolveLocalDirectory(window.FileSystemAPI.fileDir).then((dirEntry) => {
-                                if (!dirEntry) return reject('Unable to locate file folder.')
+                                if (!dirEntry) {
+                                    return reject('Unable to locate file folder.')
+                                }
                                 dirEntry.getFile(fileInfo.name, { create: true, exclusive: false }, function (fileEntry) {
                                     fileEntry.createWriter(function (fileWriter) {
                                         fileWriter.onwrite = function () {
                                             saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, fileEntry.nativeURL, Date.now(), false).then(() => {
                                                 flash(`Saved file: ${fileInfo.name}`)
+                                                emit('file-saved', fileId)
                                                 resolve()
                                             }).catch(e => {
                                                 flash(`Failed to save metadata!`)
@@ -577,9 +583,11 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                         fileWriter.write(blob);
                                     }, reject)
                                 }, (err) => {
+                                    console.error('Failed to add entry')
                                     reject(err)
                                 });
                             }).catch(e => {
+                                console.error('Failed to resolve file directory')
                                 reject(e)
                             })
                         })
@@ -592,10 +600,9 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                     return window.fileSystemAPI.saveFile(window.FileSystemAPI.resolvePath(fileInfo.name, false, true), buffer).then(() => {
                         return saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, window.FileSystemAPI.resolvePath(fileInfo.name, false, true), Date.now(), false).then(() => {
                             flash(`Saved file: ${fileInfo.name}`)
+                            emit('file-saved', fileId)
                         }).catch(e => {
                             flash(`Failed to save metadata!`)
-                            delete receivedFiles.current[deviceId][fileId];
-                            if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
                             throw e
                         })
                     })
@@ -605,23 +612,23 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             }
         };
         const saveChunksToFile = (chunks: Uint8Array[]) => {
-            saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, '', Date.now(), true).then(() => {
-                const proms = []
-                for (let i = 0; i < chunks.length; i++) {
-                    proms.push(saveChunkToIndexedDB(fileId, i + 1, chunks[i]))
-                }
-                return Promise.all(proms).then(() => {
+            console.log('Storing chunks', chunks.length)
+            saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, '', Date.now(), true).then(async () => {
+                try {
+                    for (let i = 0; i < chunks.length; i++) {
+                        await saveChunkToIndexedDB(fileId, i + 1, chunks[i])
+                    }
                     flash('File Saved!')
                     emit('file-saved', fileId)
-                }).catch(e => {
+                } catch(e) {
                     flash(`Failed to save file!`)
                     Promise.allSettled([
                         deleteFileFromIndexedDB(fileId),
                         deleteFileMetadata(fileId)
-                    ]).catch(() => {}).finally(() => {
+                    ]).catch(() => { }).finally(() => {
                         throw e
                     })
-                })
+                }
             })
         }
 
@@ -645,11 +652,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 } else {
                     const decompressedChunks: Uint8Array[] = []
                     for (let i = 0; i < decompressedData.byteLength; i += maxMessageSize) {
-                        decompressedChunks.push(new Uint8Array(
-                            decompressedData.buffer,
-                            decompressedData.byteOffset + i,
-                            Math.min(maxMessageSize, decompressedData.byteLength - i)
-                        ));
+                        decompressedChunks.push(decompressedData.slice(i, i + maxMessageSize));
                     }
                     saveChunksToFile(decompressedChunks)
                 }
@@ -694,6 +697,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 const read = () => {
                     reader.read().then(({ done, value }) => {
                         if (done) {
+                            console.log("READ CHUNKS", chunks.length)
                             const finalize = () => {
                                 if (autoDownloadFiles || device.app) {
                                     const blob = new Blob(chunks, { type: fileInfo.type });
@@ -728,7 +732,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         }
     }, [autoDownloadFiles])
 
-    const onDataChannelMessage = useCallback((deviceId: string, data: any) => {
+    const onDataChannelMessage = useCallback(async (deviceId: string, data: any) => {
         let message: FileMessage
         try {
             if (typeof data === "string") {
@@ -747,10 +751,12 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         switch (message.type) {
             case "file-metadata": {
                 if (!receivedFiles.current[deviceId]) receivedFiles.current[deviceId] = {};
+                if (!receivedFilePromises.current[deviceId]) receivedFilePromises.current[deviceId] = {}
                 const password = requestedPeers.current.has(deviceId) ? deviceId : myDeviceId
                 const { key, iv } = message.data;
-                (message.data.size >= largeFileSize ? createDecrypterCTR : createDecrypter)(password, new Uint8Array(key), new Uint8Array(iv)).then((decrypt) => {
-                    receivedFiles.current[deviceId][fileId] = {
+
+                receivedFilePromises.current[deviceId][fileId] = (message.data.size >= largeFileSize ? createDecrypterCTR : createDecrypter)(password, new Uint8Array(key), new Uint8Array(iv)).then((decrypt) => {
+                    return receivedFiles.current[deviceId][fileId] = {
                         name: message.data.name,
                         size: message.data.size,
                         type: message.data.type,
@@ -765,43 +771,80 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             }
 
             case "file-chunk": {
-                const fileInfo = receivedFiles.current[deviceId]?.[fileId];
-                if (fileInfo) {
-                    if (fileInfo.size < largeFileSize) {
-                        if (!receivedChunks.current[deviceId]) receivedChunks.current[deviceId] = {};
-                        if (!receivedChunks.current[deviceId][fileId]) receivedChunks.current[deviceId][fileId] = new Map<number, Parts>()
-                        let chunk: Uint8Array;
-                        if (message.data instanceof BSON.Binary) {
-                            chunk = message.data.buffer;
-                        } else {
-                            chunk = new Uint8Array(message.data);
+                const fileInfo = receivedFiles.current[deviceId]?.[fileId] ? receivedFiles.current[deviceId][fileId] : receivedFilePromises.current[deviceId]?.[fileId] instanceof Promise ? await receivedFilePromises.current[deviceId][fileId] : null;
+                if (!fileInfo) return
+
+                if (fileInfo.size < largeFileSize) {
+                    if (!receivedChunks.current[deviceId]) receivedChunks.current[deviceId] = {};
+                    if (!receivedChunks.current[deviceId][fileId]) receivedChunks.current[deviceId][fileId] = new Map<number, Parts>()
+                    let chunk: Uint8Array;
+                    if (message.data instanceof BSON.Binary) {
+                        chunk = message.data.buffer;
+                    } else {
+                        chunk = new Uint8Array(message.data);
+                    }
+                    const existingChunk = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
+                    if (existingChunk) {
+                        existingChunk.parts.set(message.chunkPart, chunk)
+                        existingChunk.totalParts = message.totalParts
+                    } else {
+                        const parts = new Map<number, Uint8Array>()
+                        parts.set(message.chunkPart, chunk)
+                        receivedChunks.current[deviceId][fileId].set(message.chunkNumber, { parts, totalParts: message.totalParts });
+                    }
+                    const partialChunks = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
+                    if (partialChunks && partialChunks.parts.size === partialChunks.totalParts) {
+                        fileInfo.chunksReceived += 1;
+                        const receivedSize = Object.values(receivedChunks.current[deviceId][fileId])
+                            .reduce((acc: number, map: Parts) => {
+                                const chunks = Array.from(map.parts.entries()).sort(([indexA], [indexB]) => {
+                                    return indexA - indexB
+                                })
+                                for (let i = 0; i < chunks.length; i++) {
+                                    const chunk = chunks[i][1]
+                                    acc += (chunk instanceof ArrayBuffer ? chunk.byteLength : new Blob([chunk]).size)
+                                }
+                                return acc
+                            }, 0);
+                        fileInfo.progress += receivedSize;
+                        if (fileInfo.chunksReceived % 5 === 0) {
+                            const progress = parseFloat(Math.min(100, (receivedSize / fileInfo.size) * 100).toFixed(2));
+                            setReceivedFileProgress(prev => ({
+                                ...prev,
+                                [deviceId]: prev[deviceId] ? {
+                                    ...prev[deviceId],
+                                    [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name }
+                                } : { [fileId]: { progress, name: fileInfo.name } }
+                            }));
                         }
-                        const existingChunk = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
-                        if (existingChunk) {
-                            existingChunk.parts.set(message.chunkPart, chunk)
-                            existingChunk.totalParts = message.totalParts
-                        } else {
-                            const parts = new Map<number, Uint8Array>()
-                            parts.set(message.chunkPart, chunk)
-                            receivedChunks.current[deviceId][fileId].set(message.chunkNumber, { parts, totalParts: message.totalParts });
-                        }
-                        const partialChunks = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
-                        if (partialChunks && partialChunks.parts.size === partialChunks.totalParts) {
+                    }
+
+                } else {
+                    let chunk: Uint8Array;
+                    if (message.data instanceof BSON.Binary) {
+                        chunk = message.data.buffer;
+                    } else {
+                        chunk = new Uint8Array(message.data);
+                    }
+                    if (!receivedChunks.current[deviceId]) receivedChunks.current[deviceId] = {};
+                    if (!receivedChunks.current[deviceId][fileId]) receivedChunks.current[deviceId][fileId] = new Map<number, Parts>()
+                    const existingChunk = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
+                    if (existingChunk) {
+                        existingChunk.parts.set(message.chunkPart, chunk)
+                        existingChunk.totalParts = message.totalParts
+                    } else {
+                        const parts = new Map<number, Uint8Array>()
+                        parts.set(message.chunkPart, chunk)
+                        receivedChunks.current[deviceId][fileId].set(message.chunkNumber, { parts, totalParts: message.totalParts });
+                    }
+                    const partialChunks = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
+                    if (partialChunks && partialChunks.parts.size === partialChunks.totalParts) {
+                        const fullChunk = new Uint8Array(Array.from(partialChunks.parts.entries()).sort(([indexA], [indexB]) => indexA - indexB).map(([_, value]) => Array.from(value)).flat())
+                        saveChunkToIndexedDB(fileId, message.chunkNumber, fullChunk).then(() => {
                             fileInfo.chunksReceived += 1;
-                            const receivedSize = Object.values(receivedChunks.current[deviceId][fileId])
-                                .reduce((acc: number, map: Parts) => {
-                                    const chunks = Array.from(map.parts.entries()).sort(([indexA], [indexB]) => {
-                                        return indexA - indexB
-                                    })
-                                    for (let i = 0; i < chunks.length; i++) {
-                                        const chunk = chunks[i][1]
-                                        acc += (chunk instanceof ArrayBuffer ? chunk.byteLength : new Blob([chunk]).size)
-                                    }
-                                    return acc
-                                }, 0);
-                            fileInfo.progress += receivedSize;
-                            if (fileInfo.chunksReceived % 5 === 0) {
-                                const progress = parseFloat(Math.min(100, (receivedSize / fileInfo.size) * 100).toFixed(2));
+                            fileInfo.progress += fullChunk.byteLength;
+                            if (fileInfo.chunksReceived % 10 === 0) {
+                                const progress = parseFloat(Math.min(100, (fileInfo.progress / fileInfo.size) * 100).toFixed(2));
                                 setReceivedFileProgress(prev => ({
                                     ...prev,
                                     [deviceId]: prev[deviceId] ? {
@@ -810,48 +853,11 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                     } : { [fileId]: { progress, name: fileInfo.name } }
                                 }));
                             }
-                        }
-
-                    } else {
-                        let chunk: Uint8Array;
-                        if (message.data instanceof BSON.Binary) {
-                            chunk = message.data.buffer;
-                        } else {
-                            chunk = new Uint8Array(message.data);
-                        }
-                        if (!receivedChunks.current[deviceId]) receivedChunks.current[deviceId] = {};
-                        if (!receivedChunks.current[deviceId][fileId]) receivedChunks.current[deviceId][fileId] = new Map<number, Parts>()
-                        const existingChunk = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
-                        if (existingChunk) {
-                            existingChunk.parts.set(message.chunkPart, chunk)
-                            existingChunk.totalParts = message.totalParts
-                        } else {
-                            const parts = new Map<number, Uint8Array>()
-                            parts.set(message.chunkPart, chunk)
-                            receivedChunks.current[deviceId][fileId].set(message.chunkNumber, { parts, totalParts: message.totalParts });
-                        }
-                        const partialChunks = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
-                        if (partialChunks && partialChunks.parts.size === partialChunks.totalParts) {
-                            const fullChunk = new Uint8Array(Array.from(partialChunks.parts.entries()).sort(([indexA], [indexB]) => indexA - indexB).map(([_, value]) => Array.from(value)).flat())
-                            saveChunkToIndexedDB(fileId, message.chunkNumber, fullChunk).then(() => {
-                                fileInfo.chunksReceived += 1;
-                                fileInfo.progress += fullChunk.byteLength;
-                                if (fileInfo.chunksReceived % 10 === 0) {
-                                    const progress = parseFloat(Math.min(100, (fileInfo.progress / fileInfo.size) * 100).toFixed(2));
-                                    setReceivedFileProgress(prev => ({
-                                        ...prev,
-                                        [deviceId]: prev[deviceId] ? {
-                                            ...prev[deviceId],
-                                            [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name }
-                                        } : { [fileId]: { progress, name: fileInfo.name } }
-                                    }));
-                                }
-                            }).catch(e => {
-                                console.error('Error saving chunk to IndexedDB', e);
-                            }).finally(() => {
-                                receivedChunks.current[deviceId][fileId].delete(message.chunkNumber)
-                            })
-                        }
+                        }).catch(e => {
+                            console.error('Error saving chunk to IndexedDB', e);
+                        }).finally(() => {
+                            receivedChunks.current[deviceId][fileId].delete(message.chunkNumber)
+                        })
                     }
                 }
                 break;
@@ -877,9 +883,11 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             case 'cancel-upload': {
                 delete receivedChunks.current[deviceId][fileId];
                 delete receivedFiles.current[deviceId][fileId];
+                delete receivedFilePromises.current[deviceId][fileId]
 
                 if (Object.keys(receivedChunks.current[deviceId]).length === 0) delete receivedChunks.current[deviceId];
                 if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
+                if (Object.keys(receivedFilePromises.current[deviceId]).length === 0) delete receivedFilePromises.current[deviceId];
 
                 setReceivedFileProgress(prev => {
                     if (!prev[deviceId]) return prev;
@@ -898,8 +906,8 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 break
             }
             case "file-end":
-                if (!receivedFiles.current[deviceId] || !receivedFiles.current[deviceId][fileId]) return;
-                const fileInfo = receivedFiles.current[deviceId][fileId];
+                const fileInfo = receivedFiles.current[deviceId]?.[fileId] ? receivedFiles.current[deviceId][fileId] : receivedFilePromises.current[deviceId]?.[fileId] instanceof Promise ? await receivedFilePromises.current[deviceId][fileId] : null;
+                if (!fileInfo) return
                 fileInfo.chunkCount = message.totalChunks;
                 const finishStart = Date.now()
                 const finishEnd = finishStart + 1000 * 60
@@ -1127,6 +1135,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             });
 
             receivedFiles.current = {};
+            receivedFilePromises.current = {}
             receivedChunks.current = {};
             currentTransfers.current = {};
             pausedTransfers.current = {};
@@ -1160,7 +1169,8 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             autoAcceptFiles,
             autoDownloadFiles,
             setAutoAcceptFiles,
-            setAutoDownloadFiles
+            setAutoDownloadFiles,
+
         }}>
             {children}
         </P2PContext.Provider>

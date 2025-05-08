@@ -4,6 +4,7 @@ import PopupComponent from '../components/Popup'
 
 const ConfirmPopup = React.lazy(() => import('../components/ConfirmPopup'))
 const AlertPopup = React.lazy(() => import('../components/AlertPopup'))
+const SavedFilesPopup = React.lazy(() => import('../components/SavedFilesPopup'))
 
 export default function usePopups() {
     const [popups, setPopups] = React.useState<({ popup: JSX.Element, onClose?: () => void, showClose: boolean })[]>([])
@@ -30,6 +31,11 @@ export default function usePopups() {
             }
             case 'alert': {
                 element = <AlertPopup message={options.message} />
+                showClose = true
+                break
+            }
+            case 'saved-files': {
+                element = <SavedFilesPopup />
                 showClose = true
                 break
             }

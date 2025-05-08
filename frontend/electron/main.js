@@ -5,7 +5,8 @@ const http = require('http');
 const https = require('https')
 const fs = require('fs');
 const mime = require('mime-types');
-const os = require('os')
+const os = require('os');
+const { dialog } = require('electron/main');
 
 process.env.PLATFORM = os.platform()
 app.commandLine.appendSwitch('enable-features', 'WebRtcHideLocalIpsWithMdns');
@@ -52,166 +53,164 @@ ipcMain.handle('fs:save-file', (event, filePath, data) => {
 // Check if a file or directory exists
 ipcMain.handle('fs:resolve', (event, filePath) => {
   return new Promise((resolve) => {
-      fs.stat(filePath, (err, stats) => {
-          if (err) return resolve({ exists: false });
-          resolve({ exists: true, isDirectory: stats.isDirectory(), isFile: stats.isFile() });
-      });
+    fs.stat(filePath, (err, stats) => {
+      if (err) return resolve({ exists: false });
+      resolve({ exists: true, isDirectory: stats.isDirectory(), isFile: stats.isFile() });
+    });
   });
 });
 
 // Create a directory (recursively)
 ipcMain.handle('fs:createDirectory', (event, dirPath) => {
   return new Promise((resolve, reject) => {
-      fs.mkdir(dirPath, { recursive: true }, (err) => {
-          if (err) return reject(err);
-          resolve(true);
-      });
+    fs.mkdir(dirPath, { recursive: true }, (err) => {
+      if (err) return reject(err);
+      resolve(true);
+    });
   });
 });
 
 // Delete a directory recursively
 ipcMain.handle('fs:deleteDirectory', (event, dirPath) => {
   return new Promise((resolve, reject) => {
-      fs.rm(dirPath, { recursive: true, force: true }, (err) => {
-          if (err) return reject(err);
-          resolve(true);
-      });
+    fs.rm(dirPath, { recursive: true, force: true }, (err) => {
+      if (err) return reject(err);
+      resolve(true);
+    });
   });
 });
 
 // Copy a directory recursively
 ipcMain.handle('fs:copyDirectory', (event, srcDir, destDir) => {
   return new Promise((resolve, reject) => {
-      const copyRecursive = (src, dest, cb) => {
-          fs.mkdir(dest, { recursive: true }, (err) => {
-              if (err) return cb(err);
-              fs.readdir(src, { withFileTypes: true }, (err, entries) => {
-                  if (err) return cb(err);
-                  let pending = entries.length;
-                  if (!pending) return cb();
+    const copyRecursive = (src, dest, cb) => {
+      fs.mkdir(dest, { recursive: true }, (err) => {
+        if (err) return cb(err);
+        fs.readdir(src, { withFileTypes: true }, (err, entries) => {
+          if (err) return cb(err);
+          let pending = entries.length;
+          if (!pending) return cb();
 
-                  entries.forEach((entry) => {
-                      const srcPath = path.join(src, entry.name);
-                      const destPath = path.join(dest, entry.name);
-                      if (entry.isDirectory()) {
-                          copyRecursive(srcPath, destPath, (err) => {
-                              if (--pending === 0) cb(err);
-                          });
-                      } else {
-                          fs.copyFile(srcPath, destPath, (err) => {
-                              if (--pending === 0) cb(err);
-                          });
-                      }
-                  });
+          entries.forEach((entry) => {
+            const srcPath = path.join(src, entry.name);
+            const destPath = path.join(dest, entry.name);
+            if (entry.isDirectory()) {
+              copyRecursive(srcPath, destPath, (err) => {
+                if (--pending === 0) cb(err);
               });
+            } else {
+              fs.copyFile(srcPath, destPath, (err) => {
+                if (--pending === 0) cb(err);
+              });
+            }
           });
-      };
-
-      copyRecursive(srcDir, destDir, (err) => {
-          if (err) return reject(err);
-          resolve(true);
+        });
       });
+    };
+
+    copyRecursive(srcDir, destDir, (err) => {
+      if (err) return reject(err);
+      resolve(true);
+    });
   });
 });
 
 // Copy a file
 ipcMain.handle('fs:copyFile', (event, srcPath, destPath) => {
   return new Promise((resolve, reject) => {
-      fs.mkdir(path.dirname(destPath), { recursive: true }, (err) => {
-          if (err) return reject(err);
-          fs.copyFile(srcPath, destPath, (err) => {
-              if (err) return reject(err);
-              resolve(true);
-          });
+    fs.mkdir(path.dirname(destPath), { recursive: true }, (err) => {
+      if (err) return reject(err);
+      fs.copyFile(srcPath, destPath, (err) => {
+        if (err) return reject(err);
+        resolve(true);
       });
+    });
   });
 });
 
 // Delete a file
 ipcMain.handle('fs:deleteFile', (event, filePath) => {
   return new Promise((resolve, reject) => {
-      fs.unlink(filePath, (err) => {
-          if (err && err.code !== 'ENOENT') return resolve(false);
-          else if (err) return reject(err)
-          resolve(true);
-      });
+    fs.unlink(filePath, (err) => {
+      if (err && err.code !== 'ENOENT') return reject(err);
+      else if (err) return resolve(false)
+      resolve(true);
+    });
   });
 });
 
 // Ensure directory exists
 ipcMain.handle('fs:ensureDir', (event, filePath) => {
   return new Promise((resolve, reject) => {
-      fs.mkdir(path.dirname(filePath), { recursive: true }, (err) => {
-          if (err) return reject(err);
-          resolve(true);
-      });
+    fs.mkdir(path.dirname(filePath), { recursive: true }, (err) => {
+      if (err) return reject(err);
+      resolve(true);
+    });
   });
 });
 
 // Recursively create path parts
 ipcMain.handle('fs:createDirs', (event, filePath) => {
   return new Promise((resolve, reject) => {
-      const parts = path.normalize(filePath).split(path.sep).filter(Boolean);
-      let currentPath = path.isAbsolute(filePath) ? path.sep : '';
-      const createNext = () => {
-          if (!parts.length) return resolve(true);
-          currentPath = path.join(currentPath, parts.shift());
-          fs.mkdir(currentPath, { recursive: false }, (err) => {
-              if (err && err.code !== 'EEXIST') return reject(err);
-              createNext();
-          });
-      };
-      createNext();
+    const parts = path.normalize(filePath).split(path.sep).filter(Boolean);
+    let currentPath = path.isAbsolute(filePath) ? path.sep : '';
+    const createNext = () => {
+      if (!parts.length) return resolve(true);
+      currentPath = path.join(currentPath, parts.shift());
+      fs.mkdir(currentPath, { recursive: false }, (err) => {
+        if (err && err.code !== 'EEXIST') return reject(err);
+        createNext();
+      });
+    };
+    createNext();
   });
 });
 
 // Download a file
 ipcMain.handle('fs:downloadFile', (event, uri, destPath) => {
   return new Promise((resolve, reject) => {
-      const protocol = uri.startsWith('https') ? https : http;
-      fs.mkdir(path.dirname(destPath), { recursive: true }, (err) => {
-          if (err) return reject(err);
-          const file = fs.createWriteStream(destPath);
-          protocol.get(uri, (res) => {
-              if (res.statusCode !== 200) {
-                  return reject(new Error(`Failed to download: ${res.statusCode}`));
-              }
-              res.pipe(file);
-              file.on('finish', () => {
-                  file.close(() => resolve(true));
-              });
-          }).on('error', reject);
-      });
+    const protocol = uri.startsWith('https') ? https : http;
+    fs.mkdir(path.dirname(destPath), { recursive: true }, (err) => {
+      if (err) return reject(err);
+      const file = fs.createWriteStream(destPath);
+      protocol.get(uri, (res) => {
+        if (res.statusCode !== 200) {
+          return reject(new Error(`Failed to download: ${res.statusCode}`));
+        }
+        res.pipe(file);
+        file.on('finish', () => {
+          file.close(() => resolve(true));
+        });
+      }).on('error', reject);
+    });
   });
 });
 
 // Replace file
 ipcMain.handle('fs:replaceFile', (event, sourcePath, targetPath) => {
   return new Promise((resolve, reject) => {
-      fs.copyFile(sourcePath, targetPath, (err) => {
-          if (err) return reject(err);
-          resolve(true);
-      });
+    fs.copyFile(sourcePath, targetPath, (err) => {
+      if (err) return reject(err);
+      resolve(true);
+    });
   });
 });
 ipcMain.handle('move-file', async (event, sourcePath) => {
-  const { filePath, canceled } = await dialog.showSaveDialog({
-      title: 'Save File As',
-      defaultPath: path.basename(sourcePath),
-  });
-  if (!canceled && filePath) {
-    return new Promise((res, rej) => {
-      fs.rename(sourcePath, filePath, (err) => {
-          if (err) {
-              return rej('Failed to move file: ' + err.toString());
-          } else {
-             return res(true)
-          }
-      });
-    })
-  } else {
-    return Promise.reject("Failed to move file")
-  }
+  return dialog.showSaveDialog({
+    title: 'Save File As',
+    defaultPath: path.basename(sourcePath),
+  }).then(({ filePath, canceled }) => {
+    if (!canceled && filePath) {
+      return new Promise((res, rej) => {
+        fs.rename(sourcePath, filePath, (err) => {
+          if (err) return rej('Failed to move file: ' + err.toString());
+          res()
+        })
+      })
+    } else {
+      return Promise.reject("Failed to move file")
+    }
+  })
 })
 function createWindow() {
   const win = new BrowserWindow({

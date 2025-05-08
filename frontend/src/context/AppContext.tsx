@@ -4,6 +4,8 @@ import EventEmitter from '../utils/event-emitter';
 import { toast } from '../utils/toast'
 import usePopups from '../hooks/usePopups';
 import UpdateAvailable from '../components/UpdateAvailable';
+import useSavedFiles from '../hooks/useSavedFiles';
+import { FileMetadata } from '../utils/indexed-db';
 
 
 export const emitter = new EventEmitter();
@@ -112,6 +114,11 @@ interface AppContextProps {
     confirm: (message: string, callback: (confirmed: boolean) => void) => void;
     alert: (message: string) => void;
     flash: (message: string) => void;
+    addPopup: (type: string, options?: any) => void
+    removePopup: (all: boolean) => void,
+    files: FileMetadata[],
+    loadingFiles: boolean,
+    reloadFiles: () => void
 }
 
 const AppContext = createContext<AppContextProps | undefined>(undefined);
@@ -123,7 +130,8 @@ interface AppProviderProps {
 export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const [updateAvailable, setUpdateAvailable] = useState<boolean>(false)
     const [state, dispatch] = useReducer(appReducer, initialState);
-    const { Popup, addPopup } = usePopups()
+    const { Popup, addPopup, removePopup } = usePopups()
+    const {files, reload: reloadFiles, loading: loadingFiles} = useSavedFiles()
     const confirm = (message: string, callback: (confirmed: boolean) => void) => {
         addPopup('confirm', {
             message,
@@ -150,7 +158,18 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
     }, [])
     return (
-        <AppContext.Provider value={{ state, dispatch, emit, confirm, alert, flash: toast }}>
+        <AppContext.Provider value={{ 
+            state,
+            dispatch,
+            emit,
+            confirm,
+             alert,
+             flash: toast,
+             addPopup,
+             removePopup,
+             files,
+            reloadFiles,
+            loadingFiles }}>
             <SocketProvider>
                 {Popup}
                 {children}

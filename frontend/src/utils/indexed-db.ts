@@ -48,7 +48,7 @@ export async function openIndexedDB(): Promise<IDBDatabase> {
 
                 const preservedFileIds = new Set<string>();
 
-                const metadataCursorRequest = metadataStore.index('storedInDbIndex').openCursor(IDBKeyRange.only(true));
+                const metadataCursorRequest = metadataStore.index('storedInDbIndex').openCursor(IDBKeyRange.only('true'));
                 metadataCursorRequest.onsuccess = (event: any) => {
                     const cursor = event.target.result;
                     if (cursor) {
@@ -204,7 +204,7 @@ export async function getFileMetadata(fileId: string): Promise<FileMetadata | nu
 
     return new Promise((resolve, reject) => {
         const request = index.get(fileId);
-        request.onsuccess = () => resolve(request.result ?? null);
+        request.onsuccess = () => resolve(request.result ? { ...request.result, stored_in_db: (request.result.stored_in_db as any) === 'true' } : null);
         request.onerror = () => reject(request.error);
     });
 }
@@ -227,9 +227,9 @@ export async function saveFileMetadata(
         request.onsuccess = () => {
             const existing = request.result;
             if (existing) {
-                store.put({ ...existing, pathname, downloaded_at, stored_in_db });
+                store.put({ ...existing, name, type, size, pathname, downloaded_at, stored_in_db: stored_in_db.toString() });
             } else {
-                store.put({ fileId, pathname, downloaded_at, stored_in_db });
+                store.put({ fileId, name, type, size, pathname, downloaded_at, stored_in_db: stored_in_db.toString() });
             }
         };
         tx.oncomplete = () => resolve();
@@ -257,12 +257,12 @@ export async function deleteFileMetadata(fileId: string): Promise<void> {
     });
 }
 
-export async function listAllFileMetadata(): Promise<Array<{ fileId: string; pathname: string; downloaded_at: string }>> {
+export async function listAllFileMetadata(): Promise<Array<FileMetadata>> {
     const db = await openIndexedDB();
     const tx = db.transaction("fileMetadata", "readonly");
     const store = tx.objectStore("fileMetadata");
 
-    const result: Array<{ fileId: string; pathname: string; downloaded_at: string }> = [];
+    const result: Array<FileMetadata> = [];
 
     return new Promise((resolve, reject) => {
         const request = store.openCursor();
@@ -272,6 +272,9 @@ export async function listAllFileMetadata(): Promise<Array<{ fileId: string; pat
                 result.push(cursor.value);
                 cursor.continue();
             } else {
+                for (let i = 0; i < result.length; i++) {
+                    result[i].stored_in_db = (result[i].stored_in_db as any) === 'true'
+                }
                 resolve(result);
             }
         };

@@ -224,6 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function checkForUpdates() {
+        console.log('CHECKING FOR UPDATES')
         const rootExists = await checkDirectoriesExist().then(results => results.every(result => result.status === 'fulfilled')).catch(e => {
             console.error('Error checking directories:', e);
             return false;

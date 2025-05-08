@@ -7,27 +7,33 @@ import device, { deviceTypes } from '../constants/device-browser';
 import icons from './icons';
 import Button from './Button';
 import AutoDownload from './AutoDownload';
+import { useP2PContext } from '../context/P2PContext';
+import { useAppContext } from '../context/AppContext';
 
 interface HeaderProps {
 
 }
 const isDesktop = deviceTypes.Desktop === device.deviceType
 const Header: React.FC<HeaderProps> = ({ }) => {
+    const { addPopup, files } = useAppContext()
     const [showMore, setShowMore] = useState(isDesktop)
     const headerOptions = useMemo(() => {
         return <>
-        {!isDesktop ? <Button variant="danger" size="sm" className="absolute top-1 right-1 pointer" onClick={() => {
-            setShowMore(false)
-        }}>{icons.x}</Button> : null}
-        <div className='grow'>
-            <DeviceName />
-        </div>
-        <PeerSelector />
-        <AutoAccept/>
-        {false && <AutoDownload/>}
-        <LogOut />
+            {!isDesktop ? <Button variant="danger" size="sm" className="absolute top-1 right-1 pointer" onClick={() => {
+                setShowMore(false)
+            }}>{icons.x}</Button> : null}
+            <div className='grow'>
+                <DeviceName />
+            </div>
+            <PeerSelector />
+            <AutoAccept />
+            <AutoDownload />
+            <Button onClick={() => {
+                addPopup('saved-files')
+            }}>Files ({files.length})</Button>
+            <LogOut />
         </>
-    }, [])
+    }, [files])
     return (
         <header className="bg-blue-700
          text-white 
@@ -59,7 +65,7 @@ const Header: React.FC<HeaderProps> = ({ }) => {
                 </div>
                 <div className={isDesktop ? "flex flex-grow items-center justify-end flex-wrap gap-2" : "flex flex-col items-center justify-start mt-2 gap-2"}>
                     {showMore ? headerOptions : <div className="pointer" onClick={() => setShowMore(true)}>
-                        {icons.hamburger}    
+                        {icons.hamburger}
                     </div>}
                 </div>
             </div>
