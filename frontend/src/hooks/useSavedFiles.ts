@@ -7,12 +7,10 @@ export const useSavedFiles = () => {
     const [reloadFiles, setReloadFiles] = useState<number>(0)
     const [gettingFiles, setGettingFiles] = useState<boolean>(false)
     const reload = useCallback(() =>{
-        console.log('Reload files')
          setReloadFiles(a => a + 1)
         }, [])
     const getFiles = useCallback(() => {
         return listAllFileMetadata().then(files => {
-            console.log("GOT FILES", files)
             setSavedFiles(files)
         }).catch(e => {
             console.error(e)
