@@ -7,7 +7,7 @@ const workingDir = window.updateBridge.workingDir
 const fileDir = window.updateBridge.fileDir
 const server = () => window.updateBridge?.server || ''
 class FileSystemAPI {
-    static fileExt = /file:/
+    static fileExt = /\.(\w+)$/
     static seperator = window.env.os === 'win32' ? '\\' : '/'
     static baseDir = ''
     static tempDir = tempDir

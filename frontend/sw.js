@@ -1,4 +1,4 @@
-const cacheNumber = 110 // Always increment this number when you make changes to the frontend bundle
+const cacheNumber = 156 // Always increment this number when you make changes to the frontend bundle
 const cachePrefix = 'Cache-v'
 const toCacheName = (cacheNumber) => `${cachePrefix}${cacheNumber}`
 const cacheName = toCacheName(cacheNumber)
@@ -8,10 +8,29 @@ const urlProtocol = new RegExp(/^(s?ftp|wss?|https?):\/\//i);
 const everythingBeforeDot = new RegExp(/\/(.*)/)
 const removeLeading = new RegExp(/\\/g)
 const subdomainTest = new RegExp(/\./g)
+const localHost = /localhost/
+const fileTest = /(\.[\w]+)+$/;
 const cachedAssets = [
     '/'
 ].map(a => `${self.location.origin}${a}`)
-const cachableUris = /localhost/.test(self.location.origin) ? [] : [self.location.origin]
+const cachableUris = localHost.test(self.location.origin) ? [] : []
+var manifestPromise
+const startManifestPromise = () => manifestPromise = fetch('/app-file-manifest.json').then(async (response) => {
+    if (!response.ok) return null
+    const manifest = await response.json()
+    if (manifest && manifest.version == cacheNumber && 'files' in manifest && typeof manifest.files.length === 'number') {
+        for (let i = 0; i < manifest.files.length; i++) {
+            const asset = manifest.files[i].uri
+            if (asset && !cachedAssets.includes(asset)) {
+                cachedAssets.push(asset)
+            }
+        }
+    }
+    return manifest
+}).catch(e => {
+    console.error('Failed to get manifest:', e)
+    return null
+})
 function toSubdomain(url = '') {
     url = baseDomainName(url)
     if (url.match(exp1)) {
@@ -57,7 +76,14 @@ const cacheResponse = (request, response) => {
         console.error('Could not cache response', e)
     })
 }
-const cacheAssets = () => {
+
+const cacheAssets = async () => {
+    if (manifestPromise) {
+        await manifestPromise
+    } else {
+        startManifestPromise()
+        await manifestPromise
+    }
     return caches.open(cacheName).then(async (cache) => {
         const promises = []
         for (let i = 0; i < cachedAssets.length; i++) {
@@ -114,20 +140,19 @@ self.addEventListener('install', (e) => {
                     versionUpdated = false
                     continue
                 }
-                await caches.open(key).then(cache => {
+                // optionally recache previously cached assets if not in our cachedAssets array, as those assets will be updated to a new version.
+                /* await caches.open(key).then(cache => {
                     return cache.keys().then(async keys => {
                         const newCache = await caches.open(cacheName)
                         for (let i = 0; i < keys.length; i++) {
                             const req = keys[i]
-                            if (false) { // add files back into cache when needed.
-                                newCache.put(req, await cache.match(req))
-                                continue
-                            }
+                            if (cachedAssets.includes(req.url)) continue
+                            newCache.put(req, await cache.match(req))
                         }
                     }).catch(e => {
                         console.error('Could not delete old cache', e)
                     })
-                })
+                }) */
                 caches.delete(key).catch(e => console.error('Could not delete old cache', e))
             }
             return result()
@@ -135,6 +160,7 @@ self.addEventListener('install', (e) => {
     })())
 })
 self.addEventListener('activate', (e) => {
+    startManifestPromise()
     return e.waitUntil(self.clients.claim())
 })
 
@@ -145,12 +171,9 @@ self.addEventListener('message', (e) => {
 })
 
 self.addEventListener('fetch', (e) => {
-    const { method, url } = e.request
+    const { method, url, headers } = e.request
     const isCacheable = cachableUrl(url)
-    if ((method !== 'GET') || !isCacheable) {
-        return e.respondWith(fetch(e.request))
-    }
-    if (cachedAssets.includes(url) || isCacheable) {
+    if (method === 'GET' && (cachedAssets.includes(url) || isCacheable)) {
         return e.respondWith(caches.match(e.request).then(res => {
             if (res) return res
             return fetch(e.request).then(resp => {
@@ -159,35 +182,48 @@ self.addEventListener('fetch', (e) => {
             })
         }))
     }
-    return e.respondWith(fetch(e.request).then(resp => {
-        if (resp.status >= 300 && resp.status < 400) return resp
-        else if (resp.status > 400) {
+    if ((method !== 'GET') || (!isCacheable && !localHost.test(self.location.origin) && !sameDomain(self.location.origin, url)) || headers.get('Force')) {
+        return e.respondWith(fetch(e.request))
+    }
+    const respondWithFetchAndCache = () => {
+        return e.respondWith(fetch(e.request).then(resp => {
+            if (resp.status >= 300 && resp.status < 400) return resp
+            else if (resp.status > 400) {
+                return caches.open(cacheName).then(cache => {
+                    return cache.match(e.request).then(res => {
+                        if (res) return res
+                        return resp
+                    })
+                }).catch((e) => {
+                    console.error(e)
+                    return resp
+                })
+            } else {
+                const clone = resp.clone()
+                setTimeout(() => cacheResponse(e.request, clone))
+                return resp
+            }
+        }).catch(e => {
             return caches.open(cacheName).then(cache => {
                 return cache.match(e.request).then(res => {
                     if (res) return res
-                    return resp
+                    console.error(e)
+                    return null
                 })
-            }).catch((e) => {
-                console.error(e)
-                return resp
-            })
-        } else {
-            const clone = resp.clone()
-            setTimeout(() => cacheResponse(e.request, clone))
-            return resp
-        }
-    }).catch(e => {
-        return caches.open(cacheName).then(cache => {
-            return cache.match(e.request).then(res => {
-                if (res) return res
+            }).catch(() => {
                 console.error(e)
                 return null
             })
-        }).catch(() => {
-            console.error(e)
-            return null
-        })
-    }))
+        }))
+    }
+    if (method === 'GET' && sameDomain(self.location.origin, url) && !fileTest.test(new URL(url).pathname)) {
+        //automatically redirect to the homepage from service worker when they request a route other than home.
+        //The SPA should load and send them to the correct path within the SPA.
+        //i.e if they go to /providers/payments the SPA should be responsible for routing them there via the app state logic.
+        // Otherwise they will need to navigate back to where they were if they reload the current pathname and it isn't the homepage.
+        return e.respondWith(Response.redirect(self.location.origin, 302));
+    }
+    return respondWithFetchAndCache()
 })
 
 self.addEventListener('push', function (event) {
@@ -228,7 +264,7 @@ self.addEventListener('push', function (event) {
             }));
             break
         }
-        default: {  
+        default: {
             if (Notification.permission === 'granted') event.waitUntil(
                 self.registration.showNotification(title, {
                     body,

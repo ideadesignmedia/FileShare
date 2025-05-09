@@ -38,7 +38,27 @@ export const deleteFile = (fileId: string): Promise<boolean> => {
         }
     })
 }
-export const downloadBlob = (blob: Blob, name: string) => {
+export const downloadBlob = async (blob: Blob, name: string) => {
+    if ('showSaveFilePicker' in window) {
+        try {
+            const handle = await (window.showSaveFilePicker as any)({
+                suggestedName: name,
+                types: [
+                    {
+                        description: 'All Files',
+                        accept: { '*/*': ['.*'] }
+                    }
+                ]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            return;
+        } catch (err) {
+            console.warn('File Picker canceled or failed, falling back to download.', err);
+            // Fall through to fallback below
+        }
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

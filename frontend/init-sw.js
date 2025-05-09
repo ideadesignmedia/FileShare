@@ -2,8 +2,9 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").then(() => {
         navigator.serviceWorker.addEventListener("message", async (event) => {
             if ('reload' === event.data) {
-                if (window.updateTriggerReload !== true) return window.dispatchEvent(new Event('reload'))
-                window.location.reload();
+                //if (window.updateTriggerReload !== true) return window.dispatchEvent(new Event('reload'))
+                window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'The app has been updated, reloading...' } }))
+                window.location.reload()
             } else if ('cacheVersionUpdate' === event.data) {
                 navigator.serviceWorker.getRegistrations().then(regi => {
                     const registration = regi[0]
