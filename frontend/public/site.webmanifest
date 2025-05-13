@@ -1,0 +1,51 @@
+{
+  "id": "/",
+  "name": "P2P FileShare",
+  "short_name": "FileShare",
+  "description": "Peer-to-peer file sharing app for quick and secure transfers.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#1a1a1a",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/web-app-manifest-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/web-app-manifest-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": [
+    "utilities",
+    "productivity",
+    "files",
+    "p2p",
+    "tools"
+  ],
+  "screenshots": [ ],
+  "share_target": {
+    "action": "/share.html",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "file",
+          "accept": [
+            "*/*"
+          ]
+        }
+      ]
+    }
+  },
+  "shortcuts": [],
+  "lang": "en-US",
+  "dir": "ltr"
+}

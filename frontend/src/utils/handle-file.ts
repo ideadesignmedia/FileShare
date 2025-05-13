@@ -2,6 +2,7 @@ import device from "../constants/device-browser"
 import { emit } from "../context/AppContext";
 import { deleteFileFromIndexedDB, deleteFileMetadata, getChunksFromIndexedDB, getFileMetadata } from "./indexed-db"
 import { toast } from "./toast";
+import { extension } from 'mime-types'
 
 export const deleteFile = (fileId: string): Promise<boolean> => {
     return getFileMetadata(fileId).then(file => {
@@ -41,14 +42,19 @@ export const deleteFile = (fileId: string): Promise<boolean> => {
 export const downloadBlob = async (blob: Blob, name: string) => {
     if ('showSaveFilePicker' in window) {
         try {
+            const ext = extension(blob.type); // e.g., "json"
+            const extWithDot = ext ? '.' + ext : '';
+
             const handle = await (window.showSaveFilePicker as any)({
-                suggestedName: name,
-                types: [
-                    {
-                        description: 'All Files',
-                        accept: { '*/*': ['.*'] }
-                    }
-                ]
+                suggestedName: name.endsWith(extWithDot) ? name : name + extWithDot,
+                types: ext
+                    ? [
+                        {
+                            description: `${blob.type} File`,
+                            accept: { [blob.type]: [`.${ext}`] }
+                        }
+                    ]
+                    : []
             });
             const writable = await handle.createWritable();
             await writable.write(blob);

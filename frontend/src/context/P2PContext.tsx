@@ -11,7 +11,9 @@ import { deviceId as myDeviceId } from '../constants'
 import device from '../constants/device-browser';
 import { Buffer } from 'buffer';
 import { downloadBlob } from '../utils/handle-file';
+
 const maxMessageSize = 65536 - 300;
+const chunkSize = 1024 * 1024 // 1MB
 const maxBufferAmount = 16 * 1024 * 1024 - (maxMessageSize + 300)
 export const largeFileSize = 10 * 1024 * 1024; // 10MB
 const numberOfChannels = 4;
@@ -50,7 +52,8 @@ export type PeerMessage = { requestId?: string } & (
             fileId: string,
             name: string,
             type: string,
-            size: number
+            size: number,
+            small: boolean
         }
     }
 );
@@ -65,7 +68,8 @@ type FileMessage = { type: 'file-chunk', data: ArrayBuffer, fileId: string, chun
             type: string,
             size: number,
             key: number[],
-            iv: number[]
+            iv: number[],
+            small: boolean
         }
     }
     | { type: 'file-pause', fileId: string }
@@ -94,6 +98,7 @@ type ReceivedFileInfo = {
     chunkCount: number,
     chunksReceived: number,
     finalized: boolean,
+    small: boolean,
     decrypt: ((chunk: Uint8Array) => Promise<Uint8Array>) | ((chunk: Uint8Array, index: number) => Promise<Uint8Array>)
 }
 export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
@@ -288,6 +293,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         return sendMessage(deviceId, {
             type: "file-metadata", data: {
                 fileId,
+                small: Boolean(isFile && file.size < largeFileSize),
                 name: isFile ? file.name : fileInfo!.name,
                 type: isFile ? file.type : fileInfo!.type,
                 size: isFile ? file.size : fileInfo!.size
@@ -379,7 +385,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             const { name, type, size } = isFile ? file : fileInfo!;
             const isSmallFile = isFile && size < largeFileSize;
             const password = requestedPeers.current.has(deviceId) ? myDeviceId : deviceId
-            const { key, iv, encrypt } = isSmallFile ? await createEncrypter(password) : await createEncrypterCTR(password)
+            const { key, iv, encrypt } = isSmallFile && isFile ? await createEncrypter(password) : await createEncrypterCTR(password)
             let sentBytes = 0;
             let sentChunks = 0
 
@@ -420,7 +426,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                     messageDataChannel(deviceId, {
                         type: "file-metadata",
                         fileId,
-                        data: { name, type, size, key: Array.from(key), iv: Array.from(iv) }
+                        data: { name, type, size, key: Array.from(key), iv: Array.from(iv), small: true }
                     });
                     const encryptedFile = await encrypt(brotliCompress(new Uint8Array(await file.arrayBuffer())), 0);
                     for (let i = 0; i < encryptedFile.byteLength; i += maxMessageSize) {
@@ -453,7 +459,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                     messageDataChannel(deviceId, {
                         type: "file-metadata",
                         fileId,
-                        data: { name, type, size, key: Array.from(key), iv: Array.from(iv) }
+                        data: { name, type, size, key: Array.from(key), iv: Array.from(iv), small: false }
                     });
 
                     const compressor = new Deflate();
@@ -525,7 +531,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 [fileId]: 'uploading'
             };
 
-            if (isSmallFile) {
+            if (isSmallFile && isFile) {
                 sendSmallFile();
             } else {
                 sendLargeFile();
@@ -567,20 +573,40 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                 }
                                 dirEntry.getFile(fileInfo.name, { create: true, exclusive: false }, function (fileEntry) {
                                     fileEntry.createWriter(function (fileWriter) {
-                                        fileWriter.onwrite = function () {
-                                            saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, fileEntry.nativeURL, Date.now(), false).then(() => {
-                                                flash(`Saved file: ${fileInfo.name}`)
-                                                emit('file-saved', fileId)
-                                                resolve()
-                                            }).catch(e => {
-                                                flash(`Failed to save metadata!`)
-                                                return reject(e)
-                                            })
-                                        };
+                                        let offset = 0;
+                                        let totalSize = blob.size;
+
                                         fileWriter.onerror = function (e) {
-                                            return reject("Failed file write: " + e.toString())
+                                            reject("Failed file write: " + e.toString());
                                         };
-                                        fileWriter.write(blob);
+
+                                        fileWriter.onwriteend = function () {
+                                            if (offset < totalSize) {
+                                                writeNextChunk();
+                                            } else {
+                                                // Done writing all chunks
+                                                saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, fileEntry.nativeURL, Date.now(), false)
+                                                    .then(() => {
+                                                        flash(`Saved file: ${fileInfo.name}`);
+                                                        emit('file-saved', fileId);
+                                                        resolve();
+                                                    })
+                                                    .catch(e => {
+                                                        flash(`Failed to save metadata!`);
+                                                        reject(e);
+                                                    });
+                                            }
+                                        };
+
+                                        function writeNextChunk() {
+                                            const nextChunk = blob.slice(offset, offset + chunkSize);
+                                            fileWriter.seek(offset); // move to correct position
+                                            fileWriter.write(nextChunk);
+                                            offset += nextChunk.size;
+                                        }
+
+                                        // Start the first chunk write
+                                        writeNextChunk();
                                     }, reject)
                                 }, (err) => {
                                     console.error('Failed to add entry')
@@ -619,7 +645,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                     }
                     flash('File Saved!')
                     emit('file-saved', fileId)
-                } catch(e) {
+                } catch (e) {
                     flash(`Failed to save file!`)
                     Promise.allSettled([
                         deleteFileFromIndexedDB(fileId),
@@ -631,7 +657,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             })
         }
 
-        if (fileInfo.size < largeFileSize) {
+        if (fileInfo.small) {
             const encryptedChunks = Array.from(receivedChunks.current[deviceId][fileId].entries()).sort(([indexA], [indexB]) => {
                 return indexA - indexB;
             }).flatMap(([_, { parts }]) => {
@@ -762,6 +788,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         chunkCount: 0,
                         chunksReceived: 0,
                         finalized: false,
+                        small: message.data.small,
                         decrypt
                     };
                 })
@@ -772,7 +799,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 const fileInfo = receivedFiles.current[deviceId]?.[fileId] ? receivedFiles.current[deviceId][fileId] : receivedFilePromises.current[deviceId]?.[fileId] instanceof Promise ? await receivedFilePromises.current[deviceId][fileId] : null;
                 if (!fileInfo) return
 
-                if (fileInfo.size < largeFileSize) {
+                if (fileInfo.small) {
                     if (!receivedChunks.current[deviceId]) receivedChunks.current[deviceId] = {};
                     if (!receivedChunks.current[deviceId][fileId]) receivedChunks.current[deviceId][fileId] = new Map<number, Parts>()
                     let chunk: Uint8Array;

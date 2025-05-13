@@ -1,4 +1,4 @@
-const cacheNumber = 156 // Always increment this number when you make changes to the frontend bundle
+const cacheNumber = 169 // Always increment this number when you make changes to the frontend bundle
 const cachePrefix = 'Cache-v'
 const toCacheName = (cacheNumber) => `${cachePrefix}${cacheNumber}`
 const cacheName = toCacheName(cacheNumber)
@@ -173,10 +173,23 @@ self.addEventListener('message', (e) => {
 self.addEventListener('fetch', (e) => {
     const { method, url, headers } = e.request
     const isCacheable = cachableUrl(url)
-    if (method === 'GET' && (cachedAssets.includes(url) || isCacheable)) {
+    if (method === 'POST' && /share.html$/.test(url)) {
+        return e.respondWith(
+            caches.match('/share.html').then(cached => {
+                if (cached) return cached;
+                return fetch('/share.html').then(resp => {
+                    if (resp.ok) {
+                        caches.open(CACHE_NAME).then(cache => cache.put('/share.html', resp.clone()));
+                    }
+                    return resp;
+                });
+            })
+        );
+    }
+    if ((method === 'GET' && (cachedAssets.includes(url) || isCacheable))) {
         return e.respondWith(caches.match(e.request).then(res => {
             if (res) return res
-            return fetch(e.request).then(resp => {
+            return fetch(self.location.origin + '/share.html').then(resp => {
                 if (resp.status === 200) cacheResponse(e.request, resp.clone())
                 return resp
             })

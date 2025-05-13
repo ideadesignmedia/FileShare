@@ -2,7 +2,7 @@ import { AuthService } from './AuthService'
 import WebSocket, { WebSocketServer } from 'ws'
 import { queMessage } from './external-server'
 import { ClientMessage, DevicesMessage, NameChangeMessage } from '../../shared/ClientMessageTypes'
-import { AuthResponseMessage, ConnectionMessage, DisconnectionMessage, NameChangeMessage as NameChangeMessageServer, NameChangeError, BroadcastMessage, BroadcastAllMessage } from '../../shared/ServerMessageTypes'
+import { AuthResponseMessage, ConnectionMessage, DisconnectionMessage, NameChangeError, BroadcastMessage, BroadcastAllMessage } from '../../shared/ServerMessageTypes'
 import { ServerBroadcast, ServerBroadcastAll, ServerChangeName, ServerDevicesRequest } from '../../shared/ManagerMessageTypes'
 
 export type UserInfo = {

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react'
-import { largeFileSize, useP2PContext } from '../context/P2PContext'
+import { useP2PContext } from '../context/P2PContext'
 import Button from './Button'
 import { useAppContext } from '../context/AppContext'
 import { formatBytes } from '../utils/format'
@@ -29,7 +29,7 @@ function FileTransferProgress({ peer, progress, fileName, fileId, isSending, clo
 
 export default React.memo(function Peer({ peer }: { peer: string }) {
     const [sending, setSending] = React.useState(false)
-    const { state, flash } = useAppContext()
+    const { state, flash, files } = useAppContext()
     const { requestFileTransfer, disconnectPeerConnection, selectedPeer, createPeerConnection, sentFileProgress, receivedFileProgress, connectedPeers } = useP2PContext()
     const fileRef = React.useRef<HTMLInputElement>(null)
     const [clearedFiles, setClearedFiles] = React.useState<string[]>([])
@@ -145,6 +145,9 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
                     }
                     }>Clear</Button>
                 </> : <>
+                    {files.length > 0 && <Button onClick={() => {
+                        flash('Not implemented')
+                    }}>Add Stored File</Button>}
                     <Button disabled={sending} onClick={() => {
                         if (fileRef.current) {
                             fileRef.current.removeAttribute('webkitdirectory');
