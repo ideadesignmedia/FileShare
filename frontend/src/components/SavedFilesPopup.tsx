@@ -8,7 +8,7 @@ import LoadingPage from './LoadingPage';
 
 const SavedFile: React.FC<{ file: FileMetadata }> = ({ file }) => {
   const {state, flash} = useAppContext()
-  return <div className="flex flex-col items-start justify-start w-full max-w-full">
+  return <div className="flex flex-col items-start justify-start w-full max-w-full p-2 rounded border-1 border-blue-500">
     <span>{file.name} ({file.type} - ({formatBytes(file.size)}))</span>
     <div className="flex items-center justify-between w-full">
       <Button variant='danger' onClick={() => {
@@ -28,10 +28,10 @@ const SavedFilesPopup: React.FC = () => {
   const { files, loadingFiles, reloadFiles, flash } = useAppContext()
   const fileInput = useRef<HTMLInputElement | null>(null)
   return (
-    <div className="flex flex-col justify-center items-center space-y-4 w-full max-w-full max-h-full overflow-hidden h-full">
-      <div className="flex flex-col w-full items-center shrink-0 justify-start p-2">
+    <div className="flex flex-col justify-center items-center space-y-4 w-full max-w-full max-h-full overflow-hidden h-full gap-2">
+      <div className="flex flex-col w-full items-center shrink-0 justify-start p-2 gap-1">
         <h3>Saved Files</h3>
-        <div className="flex w-full items-center justify-end">
+        <div className="flex w-full items-center justify-end gap-2">
           <Button onClick={() => {
             //fileInput.current?.click()
             flash('not implemented')
@@ -43,7 +43,7 @@ const SavedFilesPopup: React.FC = () => {
           <Button onClick={() => reloadFiles()}>Reload</Button>
         </div>
       </div>
-      <div className="flex flex-col items-center justify-start w-full grow overflow-y-auto overflow-x-hidden">
+      <div className="flex flex-col items-center justify-start w-full grow overflow-y-auto overflow-x-hidden gap-2">
         {loadingFiles ? <LoadingPage /> : files.length ? files.map(file => <SavedFile key={file.fileId} file={file} />) : <span>No Files Stored.</span>}
       </div>
       <input ref={fileInput} type="file" multiple className="hidden" />

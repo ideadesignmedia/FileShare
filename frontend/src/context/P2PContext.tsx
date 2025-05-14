@@ -385,7 +385,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             const { name, type, size } = isFile ? file : fileInfo!;
             const isSmallFile = isFile && size < largeFileSize;
             const password = requestedPeers.current.has(deviceId) ? myDeviceId : deviceId
-            const { key, iv, encrypt } = isSmallFile && isFile ? await createEncrypter(password) : await createEncrypterCTR(password)
+            const { key, iv, encrypt } = isSmallFile ? await createEncrypter(password) : await createEncrypterCTR(password)
             let sentBytes = 0;
             let sentChunks = 0
 
@@ -501,8 +501,8 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                     }
                                 }
                                 if (currentTransfers.current[deviceId]?.[fileId] === 'cancelled') {
-                                    reject(new Error("File transfer cancelled"));
-                                    return;
+                                    return reject(new Error("File transfer cancelled"));
+
                                 }
                             }
                         }
@@ -531,7 +531,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 [fileId]: 'uploading'
             };
 
-            if (isSmallFile && isFile) {
+            if (isSmallFile) {
                 sendSmallFile();
             } else {
                 sendLargeFile();
@@ -541,12 +541,12 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
 
     const downloadFile = useCallback(async (deviceId: string, fileId: string) => {
         const fileInfo = receivedFiles.current[deviceId][fileId];
+        if (fileInfo.finalized) return console.warn(`File "${fileInfo.name}" already finalized.`);
+        fileInfo.finalized = true
         delete receivedFiles.current[deviceId][fileId];
         delete receivedFilePromises.current[deviceId][fileId]
         if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
         if (Object.keys(receivedFilePromises.current[deviceId]).length === 0) delete receivedFilePromises.current[deviceId];
-        if (fileInfo.finalized) return console.warn(`File "${fileInfo.name}" already finalized.`);
-        fileInfo.finalized = true
         setReceivedFileProgress(prev => {
             return {
                 ...prev,
@@ -705,7 +705,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                             try {
                                 decrypted = await fileInfo.decrypt(chunk.chunkData, chunk.chunkIndex)
                             } catch (e) {
-                                console.error('Failed to decrypt')
+                                console.error('Failed to decrypt', e)
                             }
                             inflater.push(decrypted || new Uint8Array());
                         } catch (e) {
@@ -778,8 +778,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 if (!receivedFilePromises.current[deviceId]) receivedFilePromises.current[deviceId] = {}
                 const password = requestedPeers.current.has(deviceId) ? deviceId : myDeviceId
                 const { key, iv } = message.data;
-
-                receivedFilePromises.current[deviceId][fileId] = (message.data.size >= largeFileSize ? createDecrypterCTR : createDecrypter)(password, new Uint8Array(key), new Uint8Array(iv)).then((decrypt) => {
+                receivedFilePromises.current[deviceId][fileId] = (!message.data.small ? createDecrypterCTR : createDecrypter)(password, new Uint8Array(key), new Uint8Array(iv)).then((decrypt) => {
                     return receivedFiles.current[deviceId][fileId] = {
                         name: message.data.name,
                         size: message.data.size,
@@ -798,7 +797,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             case "file-chunk": {
                 const fileInfo = receivedFiles.current[deviceId]?.[fileId] ? receivedFiles.current[deviceId][fileId] : receivedFilePromises.current[deviceId]?.[fileId] instanceof Promise ? await receivedFilePromises.current[deviceId][fileId] : null;
                 if (!fileInfo) return
-
                 if (fileInfo.small) {
                     if (!receivedChunks.current[deviceId]) receivedChunks.current[deviceId] = {};
                     if (!receivedChunks.current[deviceId][fileId]) receivedChunks.current[deviceId][fileId] = new Map<number, Parts>()

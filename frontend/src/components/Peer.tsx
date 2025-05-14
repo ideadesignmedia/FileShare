@@ -8,22 +8,26 @@ import device, { deviceTypes } from '../constants/device-browser'
 
 function FileTransferProgress({ peer, progress, fileName, fileId, isSending, close }: { peer: string, progress: number, fileName: string, fileId: string, isSending?: boolean, close: (fileId: string) => void }) {
     const { pauseTransfer, resumeTransfer, cancelTransfer, cancelUpload } = useP2PContext()
-    return <div className='flex gap-2 items-center justify-center w-full'>
-        <p>{fileName}: {progress}%</p>
-        <div style={{ width: '100px', height: '10px', backgroundColor: 'lightgray' }}>
-            <div style={{ width: `${progress}%`, height: '100%', backgroundColor: 'green' }}></div>
+    return <div className='flex gap-2 items-center justify-center w-full flex-wrap'>
+        <div className="flex gap-1 items-center flex-wrap justify-start">
+            <p>{fileName}: {progress}%</p>
+            <div style={{ width: '100px', height: '10px', backgroundColor: 'lightgray' }}>
+                <div style={{ width: `${progress}%`, height: '100%', backgroundColor: 'green' }}></div>
+            </div>
         </div>
-        {!isSending ? (progress !== 100 ? <>
-            <Button variant='outline' onClick={() => pauseTransfer(peer, fileId)}>Pause</Button>
-            <Button variant='outline' onClick={() => resumeTransfer(peer, fileId)}>Resume</Button>
-            <Button variant='outline' onClick={() => cancelUpload(peer, fileId)}>Cancel</Button>
-        </> : <>
-            <Button variant='outline' onClick={() => close(fileId)}>X</Button>
-        </>) : <>
-            {progress !== 100 ? <Button variant='outline' onClick={() => cancelTransfer(peer, fileId)}>Cancel</Button> :
+        <div className="flex grow items-center justify-start">
+            {!isSending ? (progress !== 100 ? <>
+                <Button variant='outline' onClick={() => pauseTransfer(peer, fileId)}>Pause</Button>
+                <Button variant='outline' onClick={() => resumeTransfer(peer, fileId)}>Resume</Button>
+                <Button variant='outline' onClick={() => cancelUpload(peer, fileId)}>Cancel</Button>
+            </> : <>
                 <Button variant='outline' onClick={() => close(fileId)}>X</Button>
-            }
-        </>}
+            </>) : <>
+                {progress !== 100 ? <Button variant='outline' onClick={() => cancelTransfer(peer, fileId)}>Cancel</Button> :
+                    <Button variant='outline' onClick={() => close(fileId)}>X</Button>
+                }
+            </>}
+        </div>
     </div>
 }
 
@@ -35,7 +39,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
     const [clearedFiles, setClearedFiles] = React.useState<string[]>([])
     const [selectedFiles, setSelectedFiles] = React.useState<File[]>([])
     const isConnected = useMemo(() => connectedPeers.some((p) => p === peer), [connectedPeers, peer])
-    const name = useMemo(() => state.peers.find(peerD => peerD.deviceId === peer)?.deviceName || peer,[peer, state])
+    const name = useMemo(() => state.peers.find(peerD => peerD.deviceId === peer)?.deviceName || peer, [peer, state])
     const handleFiles = useCallback(async () => {
         if (!isConnected) {
             flash('Not connected to peer')
@@ -104,7 +108,7 @@ export default React.memo(function Peer({ peer }: { peer: string }) {
     return <div
         onDrop={handleDrop}
         onDragOver={handleDragOver}
-        className='flex flex-col w-full gap-2 items-center justify-center p-2 h-full'>
+        className='flex flex-col w-full max-w-full gap-2 items-center justify-center p-2 h-full max-h-full overflow-y-auto'>
         <h3>{name}</h3>
         {receivedProgress.length ? (<div className='flex flex-col gap-2 w-full'>
             <h3>Received Files</h3>

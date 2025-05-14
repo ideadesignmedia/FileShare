@@ -21,13 +21,13 @@ interface FileSystemStatic {
   workingDir: string;
   fileDir: string;
   resolvePath(path: string, useTempDir?: boolean, useFileDir?: boolean): string;
-
+  readDirectory: (path: string) => Promise<{pathname: string, isDirectory: boolean}[]>
   resolveLocalFileSystemURL?: (
     path: string,
     existsCallback: () => void,
     notExistsCallback: () => void
   ) => void;
-
+  resolveFile: (path: string) => Promise<{ exists: boolean, isDirectory?: boolean, isFile?: boolean }>
   createDirectory(path: string): Promise<void>;
   deleteDirectory(path: string): Promise<void>;
   copyDirectory(srcDir: string, destDir: string, useTempDir?: boolean, useFileDir?: boolean): Promise<void>;

@@ -34,6 +34,14 @@ class FileSystemAPI {
             notExistsCallback()
         })
     }
+    static resolveFile(path) {
+        return window.fileSystemAPI.resolveLocalFileSystemURL(path).then((result) => {
+           return result
+        })
+    }
+    static readDirectory(path) {
+        return window.fileSystemAPI.readDirectory(path)
+    }
     // create directory if not exists.
     static createDirectory(path) {
         return window.fileSystemAPI.createDirectory(path)

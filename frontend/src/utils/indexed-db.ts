@@ -1,3 +1,5 @@
+import device from "../constants/device-browser";
+
 let dbInstance: IDBDatabase | null = null;
 let cleanupDone = false;
 
@@ -79,6 +81,97 @@ export async function openIndexedDB(): Promise<IDBDatabase> {
                     reject(metadataCursorRequest.error);
                 };
 
+                if (device.app) {
+                    const deleteFiles: string[] = []
+                    const getDeleteFiles: () => Promise<void> = () => {
+                        const addFiles: (dir: string) => Promise<void> = (dir: string) => {
+                            return window.FileSystemAPI.readDirectory(dir).then((entries) => {
+                               const proms = []
+                               for (let i = 0; i < entries.length; i++) {
+                                    const entry = entries[i]
+                                    if (entry.isDirectory) {
+                                        proms.push(addFiles(entry.pathname))
+                                    } else [
+                                        deleteFiles.push(entry.pathname)
+                                    ]
+                               } 
+                               return Promise.all(proms).then(() => {})
+                            })
+                        }
+                        return addFiles(window.FileSystemAPI.fileDir)
+                    }
+                    getDeleteFiles().then(async () => {
+                        const handleCursor = (handleData: (metadata: FileMetadata) => Promise<void>, handleUnstored: () => void) => {
+                            const handles: Promise<void>[] = []
+                            const newTx = dbInstance!.transaction(["fileMetadata"], "readwrite")
+                            const metadataStore = newTx.objectStore("fileMetadata");
+                            const index = metadataStore.index("storedInDbIndex");
+                            const unstoredCursorRequest = index.openCursor(IDBKeyRange.only('false'));
+                            unstoredCursorRequest.onsuccess = (e: any) => {
+                                const cursor = e.target.result;
+                                if (cursor) {
+                                    const fileMetadata = cursor.value;
+                                    handles.push(handleData(fileMetadata))
+                                    cursor.continue();
+                                } else {
+                                    Promise.allSettled(handles).then(() => {
+                                        handleUnstored()
+                                    })
+                                }
+                            };
+                            unstoredCursorRequest.onerror = () => {
+                                console.error("❌ Error processing unstored files");
+                                reject(unstoredCursorRequest.error);
+                            };
+                        }
+                        function deleteFileMetadata(fileId: string): Promise<void> {
+                            const tx = dbInstance!.transaction("fileMetadata", "readwrite");
+                            const store = tx.objectStore("fileMetadata");
+                            const index = metadataStore.index("fileIdIndex");
+                            return new Promise((resolve, reject) => {
+                                const getRequest = index.getKey(fileId);
+                                getRequest.onsuccess = () => {
+                                    const key = getRequest.result;
+                                    if (key !== undefined) {
+                                        store.delete(key);
+                                    }
+                                };
+    
+                                tx.oncomplete = () => resolve();
+                                tx.onerror = () => reject(tx.error);
+                            });
+                        }
+                        const toBeRemoved: FileMetadata[] = []
+                        const handleRemove = () => {
+                            for (let i = 0; i < toBeRemoved.length; i++) {
+                                deleteFileMetadata(toBeRemoved[i].fileId).catch(e => {
+                                    console.error(e)
+                                })
+                            }
+                        }
+                        handleCursor(async (data: FileMetadata) => {
+                            const exists = await window.FileSystemAPI.resolveFile(data.pathname).then(({ exists }) => {
+                                return exists
+                            }).catch(e => {
+                                console.error(e)
+                                return true // don't delete the metadata incase the filesystem errored and it is actually there.
+                            })
+                            if (!exists) {
+                                toBeRemoved.push(data)
+                            } else {
+                                const index = deleteFiles.indexOf(data.pathname)
+                                if (index !== -1) deleteFiles.splice(index, 1)
+                            }
+                        }, () => {
+                            for (let i = 0; i < deleteFiles.length; i++) {
+                                window.FileSystemAPI.deleteFileIfExists(deleteFiles[i]).catch(e => console.error(e))
+                            }
+                            handleRemove()
+                        })
+                    }).catch(e => {
+                        console.error(e)
+                    })
+                }
                 tx.oncomplete = () => {
                     cleanupDone = true;
                     resolve(dbInstance!);

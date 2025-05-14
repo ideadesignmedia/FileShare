@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('updateBridge', {
 contextBridge.exposeInMainWorld('fileSystemAPI', {
     resolveLocalFileSystemURL: (path) => ipcRenderer.invoke('fs:resolve', path),
     saveFile: (path, data) => ipcRenderer.invoke('fs:save-file', path, data),
+    readDirectory: (path) => ipcRenderer.invoke('fs:readdir', path),
     createDirectory: (path) => ipcRenderer.invoke('fs:createDirectory', path),
     deleteDirectory: (path) => ipcRenderer.invoke('fs:deleteDirectory', path),
     copyDirectory: (src, dest) => ipcRenderer.invoke('fs:copyDirectory', src, dest),

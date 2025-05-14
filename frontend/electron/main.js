@@ -49,7 +49,27 @@ ipcMain.handle('fs:save-file', (event, filePath, data) => {
     });
   })
 });
-
+ipcMain.handle('fs:readdir', (event, pathname) => {
+  return new Promise((res, rej) => {
+    fs.readdir(pathname, (err, files) => {
+      if (err) return rej(err)
+      const results = []
+      for (let i = 0; i < files.length; i++) {
+        try {
+          const filePath = path.join(pathname, files[i])
+          const stats = fs.statSync(filePath)
+          results.push({
+            pathname: filePath,
+            isDirectory: stats.isDirectory()
+          })
+        } catch(e) {
+          return rej(e)
+        }
+      }
+      return res(results)
+    })
+  })
+})
 // Check if a file or directory exists
 ipcMain.handle('fs:resolve', (event, filePath) => {
   return new Promise((resolve) => {

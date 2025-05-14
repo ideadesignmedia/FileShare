@@ -275,6 +275,47 @@ const API_HOST = 'https://fileshare.ideadesignmedia.com'
             });
         }
 
+        static resolveFile(pathname) {
+            return new Promise((resolve) => {
+                window.resolveLocalFileSystemURL(
+                    pathname === tempDir || pathname === workingDir || pathname === fileDir ?
+                    pathname
+                    : pathname.substring(0, pathname.lastIndexOf('/')),
+                    (entry) => resolve({
+                        exists: true,
+                        isFile: entry.isFile,
+                        isDirectory: entry.isDirectory
+                    }),
+                    () => {
+                        return resolve({exists: false})
+                    }
+                );
+            });
+        }
+
+        static readDirectory(pathname) {
+            return new Promise((resolve, reject) => {
+                window.resolveLocalFileSystemURL(pathname, (dirEntry) => {
+                    if (!dirEntry.isDirectory) {
+                        return reject(new Error("Provided path is not a directory"));
+                    }
+                    const reader = dirEntry.createReader();
+                    reader.readEntries((entries) => {
+                        const results = entries.map(entry => ({
+                            pathname: entry.nativeURL,
+                            isDirectory: entry.isDirectory
+                        }));
+                        resolve(results);
+                    }, (err) => {
+                        reject(new Error("Failed to read directory: " + err.code));
+                    });
+        
+                }, (err) => {
+                    reject(new Error("Failed to resolve directory path: " + err.code));
+                });
+            });
+        }
+
         // Function to create necessary directories
         static createDirectories(path, temp = true, files = false) {
             return new Promise((resolve, reject) => {
