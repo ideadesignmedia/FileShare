@@ -1,4 +1,4 @@
-const cacheNumber = 202 // Always increment this number when you make changes to the frontend bundle
+const cacheNumber = 203 // Always increment this number when you make changes to the frontend bundle
 const cachePrefix = 'Cache-v'
 const toCacheName = (cacheNumber) => `${cachePrefix}${cacheNumber}`
 const cacheName = toCacheName(cacheNumber)

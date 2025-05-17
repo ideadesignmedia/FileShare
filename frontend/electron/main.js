@@ -258,7 +258,6 @@ ipcMain.handle('fileWriter:write', (event, filePath, chunk) => {
 });
 
 ipcMain.handle('fileWriter:close', (event, filePath) => {
-  console.log(filePath, fileStream.has(filePath))
   return new Promise((res, rej) => {
     if (fileStream.has(filePath)) {
       fileStream.get(filePath).end();

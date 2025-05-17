@@ -17,7 +17,7 @@ const maxMessageSize = 65536 - 300;
 const chunkSize = 1024 * 1024 // 1MB
 const maxBufferAmount = 16 * 1024 * 1024 - (maxMessageSize + 300)
 export const largeFileSize = 10 * 1024 * 1024; // 10MB
-const numberOfChannels = 2;
+const numberOfChannels = 4;
 export type P2PContextType = {
     sendMessage: (deviceId: string, payload: PeerMessage, requestId?: string, timeout?: number) => Promise<PeerMessage | null>;
     sendFile: (deviceId: string, file: File, fileId: string) => void;
@@ -780,7 +780,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         const read = () => {
                             reader.read().then(({ done, value }) => {
                                 if (done) {
-                                    console.log("closing", filePath)
                                     window.fileSystemAPI.fileWriter.close(filePath).then(() => {
                                         deleteFileFromIndexedDB(fileId).then(() => saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, filePath, Date.now(), false).then(() => {
                                             flash(`Saved file: ${fileInfo.name}`);
