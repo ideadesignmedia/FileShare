@@ -11,12 +11,13 @@ import { deviceId as myDeviceId } from '../constants'
 import device from '../constants/device-browser';
 import { Buffer } from 'buffer';
 import { downloadBlob } from '../utils/handle-file';
+import { createChunkedFileWriter } from '../utils/file-writer';
 
 const maxMessageSize = 65536 - 300;
 const chunkSize = 1024 * 1024 // 1MB
 const maxBufferAmount = 16 * 1024 * 1024 - (maxMessageSize + 300)
 export const largeFileSize = 10 * 1024 * 1024; // 10MB
-const numberOfChannels = 4;
+const numberOfChannels = 2;
 export type P2PContextType = {
     sendMessage: (deviceId: string, payload: PeerMessage, requestId?: string, timeout?: number) => Promise<PeerMessage | null>;
     sendFile: (deviceId: string, file: File, fileId: string) => void;
@@ -718,40 +719,65 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 })
                 const decompressedStream = compressedStream.pipeThrough(transformStream);
                 const reader = decompressedStream.getReader()
-                const chunks: Uint8Array[] = [];
-                const read = () => {
-                    reader.read().then(({ done, value }) => {
-                        if (done) {
-                            const finalize = () => {
-                                if (autoDownloadFiles || device.app) {
-                                    const blob = new Blob(chunks, { type: fileInfo.type });
-                                    if (device.app) {
-                                        saveBlobToFile(blob)
+                if (!device.app) {
+                    const chunks: Uint8Array[] = [];
+                    const read = () => {
+                        reader.read().then(({ done, value }) => {
+                            if (done) {
+                                const finalize = () => {
+                                    if (autoDownloadFiles) {
+                                        downloadBlob(new Blob(chunks, { type: fileInfo.type }), fileInfo.name);
                                     } else {
-                                        downloadBlob(blob, fileInfo.name);
+                                        saveChunksToFile(chunks)
                                     }
-                                } else {
-                                    saveChunksToFile(chunks)
                                 }
+                                deleteFileFromIndexedDB(fileId).then(() => {
+                                    finalize()
+                                }).catch(e => {
+                                    console.error('Error deleting file from IndexedDB', e);
+                                    if (!autoDownloadFiles) {
+                                        throw new Error('Failed to delete from indexededDB. Did not save.')
+                                    }
+                                    //mutate fileId here to ensure that the decompressed chunks are stored to a unique fileId. The old chunks will be deleted on next launch.
+                                    fileId = crypto.randomUUID()
+                                    finalize()
+                                })
+                                return;
                             }
-                            deleteFileFromIndexedDB(fileId).then(() => {
-                                finalize()
-                            }).catch(e => {
-                                console.error('Error deleting file from IndexedDB', e);
-                                if (!device.app && !autoDownloadFiles) {
-                                    throw new Error('Failed to delete from indexededDB. Did not save.')
+                            chunks.push(value)
+                            read();
+                        });
+                    }
+                    read()
+                } else if ('cordova' in window) {
+                    createChunkedFileWriter(fileInfo.name).then(writer => {
+                        const read = () => {
+                            reader.read().then(({ done, value }) => {
+                                if (done) {
+                                    writer.close().then(() => {
+                                        deleteFileFromIndexedDB(fileId).then(() => saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, writer.filePath, Date.now(), false).then(() => {
+                                            flash(`Saved file: ${fileInfo.name}`);
+                                            emit('file-saved', fileId);
+
+                                        }).catch(e => {
+                                            flash(`Failed to save metadata!`);
+                                            console.error(e)
+                                        }))
+                                    });
+                                    return;
                                 }
-                                //mutate fileId here to ensure that the decompressed chunks are stored to a unique fileId. The old chunks will be deleted on next launch.
-                                fileId = crypto.randomUUID()
-                                finalize()
-                            })
-                            return;
-                        }
-                        chunks.push(value)
+
+                                writer.writeChunk(value!).then(() => {
+                                    read()
+                                });
+                            });
+                        };
                         read();
-                    });
+                    })
+                } else {
+                    /* Electron stream implementation. */
+                    flash('Changing this still cant right now.')
                 }
-                read()
             })
         }
     }, [autoDownloadFiles])

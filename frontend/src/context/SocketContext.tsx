@@ -65,6 +65,10 @@ export const SocketProvider: React.FC<React.PropsWithChildren<{}>> = ({ children
                 break
             }
             case 'pong': break
+            case 'ping': {
+                send({type: 'pong'})
+                break
+            }
             default: {
                 console.log('Unhandled message', data);
                 break

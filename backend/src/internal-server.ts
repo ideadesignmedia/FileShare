@@ -15,7 +15,8 @@ export type UserInfo = {
 
 export const clients = new Map<WebSocket, UserInfo>()
 export const clientRequests = new Map<string, WebSocket>()
-export const authTimeouts = new Map<WebSocket, any>()
+export const authTimeouts = new Map<WebSocket, ReturnType<typeof setTimeout>>()
+const pingTimeouts = new Map<WebSocket, ReturnType<typeof setTimeout>>()
 export const userSockets = new Map<number, Map<string, WebSocket>>()
 export const startServer = () => {
     const wss = new WebSocketServer({ port: Number((() => {
@@ -33,7 +34,8 @@ export const startServer = () => {
         authTimeouts.set(ws, setTimeout(() => {
             ws.close()
         }, 30000))
-        ws.on('close', () => {
+        const handleCleanup = () => {
+            clearTimeout(pingTimeouts.get(ws))
             clearTimeout(authTimeouts.get(ws))
             authTimeouts.delete(ws)
             const userInfo = clients.get(ws)
@@ -61,6 +63,19 @@ export const startServer = () => {
                     })
                 }
             }
+        }
+        const ping = () => {
+            clearTimeout(pingTimeouts.get(ws))
+            const pingTimeout = () => ws.terminate()
+            ws.send(JSON.stringify({ type: 'ping' }))
+            pingTimeouts.set(ws, setTimeout(pingTimeout, 3000))
+        }
+        ws.on('close', handleCleanup)
+        ws.on('error', (err) => {
+            console.error(err)
+            if (ws.readyState !== ws.OPEN && ws.readyState !== ws.CONNECTING) {
+                
+            } 
         })
         ws.on('message', (message: string) => {
             let data: ClientMessage
@@ -125,6 +140,7 @@ export const startServer = () => {
                                     data: { id: userInfo.id, deviceId: userInfo.deviceId, deviceName: userInfo.deviceName, token: session.token }
                                 }
                                 ws.send(JSON.stringify(authResponse))
+                                ping()
                                 queMessage({ type: 'connection', data: { id: userInfo.id, deviceId: userInfo.deviceId, deviceName: userInfo.deviceName } } as ConnectionMessage)
                                 if (userSockets.has(user.id)) {
                                     const sockets = userSockets.get(user.id)
@@ -229,6 +245,13 @@ export const startServer = () => {
                 case 'ping': {
                     ws.send(JSON.stringify({ type: 'pong' }))
                     break;
+                }
+                case 'pong': {
+                    clearTimeout(pingTimeouts.get(ws))
+                    pingTimeouts.set(ws, setTimeout(() => {
+                        ping()
+                    }, 15000))
+                    break
                 }
                 case 'logout': {
                     if (!userInfo.authorized || !userInfo.session) {

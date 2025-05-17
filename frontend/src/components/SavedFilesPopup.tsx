@@ -1,25 +1,37 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { FileMetadata } from '../utils/indexed-db';
 import { formatBytes } from '../utils/format';
 import { deleteFile, downloadFile } from '../utils/handle-file';
 import Button from './Button';
 import LoadingPage from './LoadingPage';
+import device from '../constants/device-browser';
 
 const SavedFile: React.FC<{ file: FileMetadata }> = ({ file }) => {
-  const {state, flash} = useAppContext()
+  const { state, flash } = useAppContext()
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   return <div className="flex flex-col items-start justify-start w-full max-w-full p-2 rounded border-1 border-blue-500">
     <span>{file.name} ({file.type} - ({formatBytes(file.size)}))</span>
     <div className="flex items-center justify-between w-full">
-      <Button variant='danger' onClick={() => {
-        deleteFile(file.fileId)
-      }}>Delete</Button>
-      {state.token && <Button onClick={() => {
+      <Button disabled={deleting || saving} variant='danger' onClick={() => {
+        setDeleting(true)
+        deleteFile(file.fileId).catch(e => {
+          console.error(e)
+        }).finally(() => setDeleting(false))
+      }}>{!deleting ? "Delete" : 'Deleting...'}</Button>
+      {state.token && <Button disabled={saving || deleting} onClick={() => {
         flash('not implemented')
       }}>Send</Button>}
-      <Button onClick={() => {
-        downloadFile(file.fileId)
-      }}>Download</Button>
+      <Button disabled={deleting || saving} onClick={() => {
+        setSaving(true)
+        downloadFile(file.fileId).then(() => {
+          flash('File saved')
+        }).catch(e => {
+          console.error(e)
+          flash('Error saving file: ' + e.message || e.toString())
+        }).finally(() => setSaving(false))
+      }}>{!saving ? `Save${(device.app || 'FilePicker' in window) ? ' As' : ''}` : 'Saving...'}</Button>
     </div>
   </div>
 }

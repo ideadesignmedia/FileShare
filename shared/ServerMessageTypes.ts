@@ -72,6 +72,10 @@ export interface BroadcastAllMessage extends BaseServerMessage {
 export interface ServerPong extends BaseServerMessage {
     type: "pong";
 }
+
+export interface ServerPing extends BaseServerMessage {
+    type: "ping";
+}
 // You can add more message types as needed
 
 export type ServerMessage =
@@ -84,3 +88,4 @@ export type ServerMessage =
     | BroadcastMessage
     | BroadcastAllMessage
     | ServerPong
+    | ServerPing

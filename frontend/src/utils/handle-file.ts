@@ -116,23 +116,30 @@ export const downloadFile = (fileId: string): Promise<void> => {
                                 return reject('FILE NOT FOUND')
                             })
                         }
-                        fileEntry.file(function (fileToRead) {
-                            const reader = new FileReader();
-                            reader.onloadend = function () {
-                                const arrayBuffer = this.result as Uint8Array;
-                                const blob = new Blob([arrayBuffer], { type: file.type });
-                                (window.cordova.plugins as any).saveDialog.saveFile(blob, file.name).then((uri: string) => {
-                                    return Promise.allSettled([
-                                        deleteFileMetadata(fileId),
-                                        window.FileSystemAPI.deleteFileIfExists(file.pathname)
-                                    ]).then(() => {
-                                        emit('file-downloaded', fileId)
-                                        resolve()
-                                    })
-                                }).catch(reject)
-                            };
-                            reader.readAsArrayBuffer(fileToRead);
-                        });
+                        cordova.plugins.streamSave.exportFile({
+                            sourcePath: file.pathname,
+                            suggestedName: file.name,
+                            mimeType: file.type
+                          }).then(() => {
+                            return Promise.allSettled([
+                                deleteFileMetadata(fileId),
+                                window.FileSystemAPI.deleteFileIfExists(file.pathname)
+                            ]).then(() => {
+                                emit('file-downloaded', fileId)
+                                resolve()
+                            })
+                          }).catch(e => {
+                            if (/ENOENT/.test(e)) {
+                                return Promise.allSettled([
+                                    deleteFileMetadata(fileId),
+                                    window.FileSystemAPI.deleteFileIfExists(file.pathname)
+                                ]).then(() => {
+                                    emit('file-deleted', fileId)
+                                    return reject('FILE NOT FOUND')
+                                })
+                            }
+                            return reject(e)
+                          });
                     }).catch(reject)
                 })
             } else {

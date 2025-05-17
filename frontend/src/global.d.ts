@@ -21,7 +21,7 @@ interface FileSystemStatic {
   workingDir: string;
   fileDir: string;
   resolvePath(path: string, useTempDir?: boolean, useFileDir?: boolean): string;
-  readDirectory: (path: string) => Promise<{pathname: string, isDirectory: boolean}[]>
+  readDirectory: (path: string) => Promise<{ pathname: string, isDirectory: boolean }[]>
   resolveLocalFileSystemURL?: (
     path: string,
     existsCallback: () => void,
@@ -717,6 +717,7 @@ declare var FileError: {
 /*
 * Constants defined in fileSystemPaths
 */
+
 interface Cordova {
   file: {
     /* Read-only directory where the application is installed. */
@@ -743,7 +744,8 @@ interface Cordova {
     documentsDirectory: string;
     /* BlackBerry10: Files globally available to all apps */
     sharedDirectory: string
-  }
+  },
+
 }
 
 
@@ -753,7 +755,23 @@ declare enum LocalFileSystem {
 }
 
 declare global {
+  namespace CordovaPluginSaveFileStream {
+    interface ExportFileOptions {
+      sourcePath: string;
+      suggestedName: string;
+      mimeType: string;
+    }
+
+    interface SaveFileStream {
+      exportFile(options: ExportFileOptions): Promise<void>;
+    }
+  }
+
+  interface CordovaPlugins {
+    streamSave: CordovaPluginSaveFileStream.SaveFileStream;
+  }
   interface Window {
+
     electron: any,
     updates: Updater,
     FileSystemAPI: FileSystemStatic,
