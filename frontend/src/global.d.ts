@@ -823,7 +823,14 @@ declare global {
       createDirectories: (path: string) => Promise<boolean>,
       downloadFile: (url: string, dest: string) => Promise<boolean>,
       replaceFile: (src: string, dest: string) => Promise<boolean>,
-      moveFile: (src: string) => Promise<boolean>
+      moveFile: (src: string) => Promise<boolean>,
+      fileWriter: {
+        openFiles: () => Promise<string[]>,
+        start: (dest: string) => Promise<boolean>,
+        write: (dest: string, chunk: Uint8Array) => Promise<boolean>,
+        cancel: (dest: string) => Promise<boolean>,
+        close: (dest: string) => Promise<boolean>
+      }
     }
   }
 }

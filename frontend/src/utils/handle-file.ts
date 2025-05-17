@@ -148,7 +148,6 @@ export const downloadFile = (fileId: string): Promise<void> => {
                         deleteFileMetadata(fileId),
                         window.FileSystemAPI.deleteFileIfExists(file.pathname)
                     ]).then(() => {
-                        toast('Deleted FILE')
                         emit('file-downloaded', fileId)
                     })
                 })

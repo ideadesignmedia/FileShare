@@ -62,7 +62,7 @@ ipcMain.handle('fs:readdir', (event, pathname) => {
             pathname: filePath,
             isDirectory: stats.isDirectory()
           })
-        } catch(e) {
+        } catch (e) {
           return rej(e)
         }
       }
@@ -232,6 +232,59 @@ ipcMain.handle('move-file', async (event, sourcePath) => {
     }
   })
 })
+
+const fileStream = new Map()
+
+ipcMain.handle('fileWriter:openFiles', (event) => {
+  return new Promise(res => res(Array.from(fileStream.keys())))
+})
+
+ipcMain.handle('fileWriter:start', (event, filePath) => {
+  return new Promise((res, rej) => {
+    if (fileStream.has(filePath)) return rej('Already streaming path')
+    fileStream.set(filePath, fs.createWriteStream(filePath))
+    return res(true)
+  })
+});
+
+ipcMain.handle('fileWriter:write', (event, filePath, chunk) => {
+  return new Promise((res, rej) => {
+    if (fileStream.has(filePath) && chunk instanceof Uint8Array) {
+      fileStream.get(filePath).write(Buffer.from(chunk));
+      return res(true)
+    }
+    return rej('Failed to write chunk.')
+  })
+});
+
+ipcMain.handle('fileWriter:close', (event, filePath) => {
+  console.log(filePath, fileStream.has(filePath))
+  return new Promise((res, rej) => {
+    if (fileStream.has(filePath)) {
+      fileStream.get(filePath).end();
+      fileStream.delete(filePath);
+      return res(true)
+    } else {
+      return rej('Failed to close filestream not in list.')
+    }
+  })
+});
+ipcMain.handle('fileWriter:cancel', (event, filePath) => {
+  return new Promise((res, rej) => {
+    if (fileStream.has(filePath)) {
+      fileStream.get(filePath).end();
+      fileStream.delete(filePath);
+      return new Promise((res) => {
+        fs.unlink(filePath, (err) => {
+          if (err) console.error(err)
+          res(true)
+        })
+      }).then((result) => res(result)).catch(rej)
+    } else {
+      rej('Failed to cancel filestream not in our list.')
+    }
+  })
+});
 function createWindow() {
   const win = new BrowserWindow({
     width: 900,

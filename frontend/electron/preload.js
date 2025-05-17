@@ -30,5 +30,12 @@ contextBridge.exposeInMainWorld('fileSystemAPI', {
     createDirectories: (path) => ipcRenderer.invoke('fs:createDirs', path),
     downloadFile: (url, dest) => ipcRenderer.invoke('fs:downloadFile', url, dest),
     replaceFile: (src, dest) => ipcRenderer.invoke('fs:replaceFile', src, dest),
-    moveFile: (srcPath) => ipcRenderer.invoke('move-file', srcPath)
+    moveFile: (srcPath) => ipcRenderer.invoke('move-file', srcPath),
+    fileWriter: {
+        openFiles: () => ipcRenderer.invoke('fileWriter:openFiles'),
+        start: (filePath) => ipcRenderer.invoke('fileWriter:start', filePath),
+        write: (filePath, chunk) => ipcRenderer.invoke('fileWriter:write', filePath, chunk),
+        close: (filePath) => ipcRenderer.invoke('fileWriter:close', filePath),
+        cancel: (filePath) => ipcRenderer.invoke('fileWriter:cancel', filePath)
+    }
 });

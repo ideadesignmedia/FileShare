@@ -775,8 +775,32 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         read();
                     })
                 } else {
-                    /* Electron stream implementation. */
-                    flash('Changing this still cant right now.')
+                    const filePath = (window as Window).FileSystemAPI.resolvePath(fileInfo.name, false, true);
+                    (window as Window).fileSystemAPI.fileWriter.start(filePath).then(() => {
+                        const read = () => {
+                            reader.read().then(({ done, value }) => {
+                                if (done) {
+                                    console.log("closing", filePath)
+                                    window.fileSystemAPI.fileWriter.close(filePath).then(() => {
+                                        deleteFileFromIndexedDB(fileId).then(() => saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, filePath, Date.now(), false).then(() => {
+                                            flash(`Saved file: ${fileInfo.name}`);
+                                            emit('file-saved', fileId);
+
+                                        }).catch(e => {
+                                            flash(`Failed to save metadata!`);
+                                            console.error(e)
+                                        }))
+                                    });
+                                    return;
+                                }
+
+                                window.fileSystemAPI.fileWriter.write(filePath, value!).then(() => {
+                                    read()
+                                });
+                            });
+                        };
+                        read();
+                    })
                 }
             })
         }
