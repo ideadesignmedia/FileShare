@@ -1,13 +1,7 @@
-import React, { useMemo, useState } from 'react';
-import PeerSelector from './PeerSelector';
-import LogOut from './LogOut';
-import DeviceName from './DeviceName';
-import AutoAccept from './AutoAccept';
+import React, { useMemo } from 'react';
 import device, { deviceTypes } from '../constants/device-browser';
 import icons from './icons';
 import Button from './Button';
-import AutoDownload from './AutoDownload';
-import { useP2PContext } from '../context/P2PContext';
 import { useAppContext } from '../context/AppContext';
 
 interface HeaderProps {
@@ -16,57 +10,20 @@ interface HeaderProps {
 const isDesktop = deviceTypes.Desktop === device.deviceType
 const Header: React.FC<HeaderProps> = ({ }) => {
     const { addPopup, files } = useAppContext()
-    const [showMore, setShowMore] = useState(isDesktop)
     const headerOptions = useMemo(() => {
         return <>
-            {!isDesktop ? <Button variant="danger" size="sm" className="absolute top-1 right-1 pointer" onClick={() => {
-                setShowMore(false)
-            }}>{icons.x}</Button> : null}
-            <div className='grow'>
-                <DeviceName />
-            </div>
-            <PeerSelector />
-            <AutoAccept />
-            {!device.app && <AutoDownload />}
-            <Button onClick={() => {
-                addPopup('saved-files')
-            }}>Files ({files.length})</Button>
-            <LogOut />
+            <Button size="sm" variant="light" className="font-medium uppercase" onClick={() => addPopup('saved-files')}>Files ({files.length})</Button>
+            <Button icon size="sm" variant="light" className="h-8 w-8 leading-none inline-flex items-center justify-center" onClick={() => addPopup('settings')} aria-label="Settings">{icons.cog}</Button>
         </>
-    }, [files])
+    }, [files, addPopup])
     return (
-        <header className="bg-blue-700
-         text-white 
-         px-3
-         pt-2
-         pb-1
-         shadow-md 
-         w-full
-         max-w-full
-        flex
-         sticky 
-         
-         top-0
-         z-10
-         flex-shrink-0
-         min-h-18
-        ">
-            <div className={`flex 
-         items-center 
-         flex-wrap 
-         w-full
-         relative
-         max-w-full
-         gap-2
-         ${(!isDesktop && showMore) ? 'flex-col justify-start' : 'justify-between'}`}>
-
-                <div className="flex flex-shrink-0 items-center gap-2">
-                    <h3 className="text-xl font-bold text-white">FileShare</h3>
+        <header className="sticky top-0 z-10 w-full bg-gradient-to-r from-blue-700 to-blue-600 text-white shadow">
+            <div className="w-full px-3 pt-2 pb-2 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-h-10">
+                    <h3 className="text-xl font-bold tracking-tight">FileShare</h3>
                 </div>
-                <div className={isDesktop ? "flex flex-grow items-center justify-end flex-wrap gap-2" : "flex flex-col items-center justify-start mt-2 gap-2"}>
-                    {showMore ? headerOptions : <div className="pointer" onClick={() => setShowMore(true)}>
-                        {icons.hamburger}
-                    </div>}
+                <div className="flex flex-grow items-center justify-end flex-wrap gap-2">
+                    {headerOptions}
                 </div>
             </div>
         </header>

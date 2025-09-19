@@ -5,11 +5,11 @@
     --very-small-radius: 0.125rem;
     --small-radius: 0.25rem;
     --transition: 250ms ease-in-out;
-    --dark: #1a202c;
-    --light: #f7fafc;
-    --gray: #a0aec0;
-    --prim: #3182ce;
-    background-color: var(--dark);
+    --dark: rgba(255,255,255,0.08);
+    --light: #ffffff;
+    --gray: rgba(255,255,255,0.35);
+    --prim: #60a5fa; /* blue-400 */
+    background-color: transparent;
     color: var(--light);
     position: relative;
     display: flex;
@@ -17,7 +17,7 @@
     align-items: flex-start;
     justify-content: flex-start;
     gap: var(--small);
-    width: 100%;
+    width: auto;
     max-width: 100%;
     border-radius: var(--small-radius);
     
@@ -25,15 +25,21 @@
 .select-arrow {
     width: 1.5rem;
     height: 1.5rem;
-    fill: var(--gray);
     position: absolute;
-    top: 1rem;
-    right: .3rem;
+    top: 50%;
+    right: .5rem;
+    transform: translateY(-50%);
     transition: 250ms ease-in-out;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
+}
+.select-arrow svg {
+    width: 1rem;
+    height: 1rem;
+    color: rgba(255,255,255,0.9);
+    filter: none;
 }
 .select.open .select-arrow {
     transform: rotate(180deg) translateX(.1rem) translateY(.1rem);
@@ -46,36 +52,39 @@
     gap: var(--small);
     width: 100%;
     max-width: 100%;
-    padding: var(--large) var(--medium);
-    padding-right: calc(1.8rem + var(--small));
+    padding: var(--medium) var(--medium);
+    padding-right: calc(1.5rem + var(--small));
     border: .1rem solid var(--gray);
     border-radius: var(--small-radius);
     cursor: pointer;
     transition: 250ms ease-in-out;
+    min-height: 2rem;
+    font-size: 0.875rem;
+    backdrop-filter: none;
+    background-color: rgba(255,255,255,0.08);
 }
 .select-option {
     display: flex;
     flex-direction: row;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: var(--small);
     width: 100%;
     max-width: 100%;
     cursor: pointer;
-    border: .1rem solid var(--gray);
-    background-color: var(--dark);
-    color: var(--light);
+    border: none;
+    background-color: transparent;
+    color: #0b1324; /* slate-900 */
     transition: var(--transition);
-    height: calc(var(--large) * 4);
-    overflow: hidden;
+    min-height: 2.25rem;
+    padding: var(--medium) var(--medium);
 }
 .select:hover .select-value, .select:hover .select-value {
-    background-color: var(--gray);
+    background-color: rgba(255,255,255,0.12);
 }
 .select-option:hover {
-    background-color: var(--prim);
-    color: var(--light);
-    border-color: var(--prim);
+    background-color: #e2e8f0; /* slate-200 */
+    color: #0b1324;
 }
 .select.open .select-value {
     border-bottom-left-radius: 0;
@@ -91,15 +100,16 @@
     justify-content: flex-start;
     width: 100%;
     max-width: 100%;
-    border: .1rem solid var(--gray);
+    border: 1px solid #cbd5e1; /* slate-300 */
     border-bottom-left-radius: var(--very-small-radius);
     border-bottom-right-radius: var(--very-small-radius);
     max-height: calc(var(--large) * 4 * 3);
     overflow-y: auto;
     overflow-x: hidden;
-    background-color: var(--dark);
-    color: var(--light);
-    z-index: 1;
+    background-color: #ffffff;
+    color: #0b1324; /* slate-900 */
+    z-index: 50;
+    padding: 0.25rem 0;
     animation: select-fade-down-slide 250ms ease-in-out forwards;
 }
 

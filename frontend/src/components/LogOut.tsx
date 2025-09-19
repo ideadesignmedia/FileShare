@@ -5,9 +5,14 @@ import { useAppContext } from '../context/AppContext'
 
 
 export default React.memo(function LogOut() {
-    const {dispatch} = useAppContext()
-    const {send, close} = useSocket()
-    return <Button size="sm" variant="danger" onClick={() => {
+  const { dispatch, removePopup } = useAppContext()
+  const { send, close } = useSocket()
+  return (
+    <Button
+      size="sm"
+      variant="danger"
+      onClick={() => {
+        removePopup(true)
         send({ type: 'logout' })
         localStorage.removeItem('token')
         dispatch({ type: 'set-credentials', credentials: null })
@@ -16,5 +21,9 @@ export default React.memo(function LogOut() {
         dispatch({ type: 'set-loaded', loaded: false })
         dispatch({ type: 'set-loading', loading: false })
         close()
-    }}>Log Out</Button>
+      }}
+    >
+      Log Out
+    </Button>
+  )
 })

@@ -115,10 +115,11 @@ interface AppContextProps {
     alert: (message: string) => void;
     flash: (message: string) => void;
     addPopup: (type: string, options?: any) => void
-    removePopup: (all: boolean) => void,
+    removePopup: (all?: boolean) => void,
     files: FileMetadata[],
     loadingFiles: boolean,
-    reloadFiles: () => void
+    reloadFiles: () => void,
+    Popup: JSX.Element | null
 }
 
 const AppContext = createContext<AppContextProps | undefined>(undefined);
@@ -147,6 +148,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         localStorage.setItem('deviceName', state.deviceName)
     }, [state.deviceName])
     useEffect(() => {
+        if (!state.loaded) {
+            removePopup(true)
+        }
+    }, [state.loaded, removePopup])
+    useEffect(() => {
         if (window.updates) {
             const onUpdateAvailable = () => {
                 setUpdateAvailable(true)
@@ -169,9 +175,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
              removePopup,
              files,
             reloadFiles,
-            loadingFiles }}>
+            loadingFiles,
+            Popup }}>
             <SocketProvider>
-                {Popup}
                 {children}
                 {updateAvailable && <UpdateAvailable setVisible={setUpdateAvailable} />}
             </SocketProvider>
