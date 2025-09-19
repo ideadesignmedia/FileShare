@@ -18,8 +18,8 @@ export default React.memo(function PeerSelector() {
         setSelectedPeer(option)
         if (!connectedPeers.includes(option)) createPeerConnection(option, true)
     }, [connectedPeers])
-    return <div className="flex flex-wrap items-center justify-items-start">
-        <span>Connected to:</span>
+    return <div className="flex flex-wrap items-center justify-items-start gap-3">
+        <span className="text-sm opacity-90">Connected to:</span>
         <Select options={dropDownOptions} value={selectedPeer} onChange={onOptionSelect} defaultValue={{ content: <span>Select Peer</span> }} />
     </div>
 })

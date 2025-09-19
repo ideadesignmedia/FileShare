@@ -37,7 +37,8 @@
         flex-direction: column;
         margin: 0;
         padding: 0;
-        @apply bg-blue-700 text-black leading-relaxed flex flex-col relative;
+        /* Neutral canvas behind the app */
+        @apply bg-slate-50 text-slate-800 leading-relaxed flex flex-col relative;
     }
     
     /* Full-height root container */
@@ -54,7 +55,7 @@
         position: relative;
         margin: 0;
         padding: 0;
-        @apply bg-white text-black;
+        @apply bg-white text-slate-900;
     }
     
     /* Headings */
@@ -95,34 +96,7 @@
         @apply text-inherit hover:underline hover:text-blue-700 transition-colors;
     }
     
-    /* Buttons */
-    button {
-        @apply px-4
-        py-2
-        font-medium
-        rounded-lg
-        transition-all
-        duration-300
-        focus:outline-none
-        focus:ring-2 
-        focus:ring-blue-500 
-        disabled:opacity-50 
-        disabled:cursor-not-allowed;
-        background: white;
-        color: black;
-        border: 2px solid black;
-    }
-    button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    button:not(:disabled) {
-        cursor: pointer;
-    }
-    button:not(:disabled):hover {
-        background: black;
-        color: white;
-    }
+    /* Rely on component styles for buttons (Button.tsx). */
     
     /* Form Inputs */
     input, textarea, select {
@@ -157,6 +131,4 @@ body {
     padding-top: env(safe-area-inset-top)!important;
     padding-bottom: env(safe-area-inset-bottom)!important;
 }
-.bg-opacity-50 {
-    backdrop-filter: blur(2px) opacity(.8);
-}
+/* Popup overlay blur/tint is handled via classes on the overlay element. */

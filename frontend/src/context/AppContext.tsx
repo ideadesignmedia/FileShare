@@ -49,6 +49,9 @@ type Action = {
         deviceId: string,
         deviceName: string
     }
+} | {
+    type: 'set-login-error',
+    value: string | null
 }
 
 export type Peer = {
@@ -64,7 +67,8 @@ interface AppState {
         username: string,
         password: string
     } | null,
-    deviceName: string
+    deviceName: string,
+    loginError: string | null
 }
 const initialState: AppState = {
     token: localStorage.getItem('token') || '',
@@ -72,7 +76,8 @@ const initialState: AppState = {
     loading: false,
     loaded: false,
     credentials: null,
-    deviceName: localStorage.getItem('deviceName') || ''
+    deviceName: localStorage.getItem('deviceName') || '',
+    loginError: null
 }
 function appReducer(state: AppState, action: Action): AppState {
     switch (action.type) {
@@ -102,6 +107,8 @@ function appReducer(state: AppState, action: Action): AppState {
                     }
                 })
             }
+        case 'set-login-error':
+            return { ...state, loginError: action.value }
         default:
             return state;
     }
@@ -115,10 +122,11 @@ interface AppContextProps {
     alert: (message: string) => void;
     flash: (message: string) => void;
     addPopup: (type: string, options?: any) => void
-    removePopup: (all: boolean) => void,
+    removePopup: (all?: boolean) => void,
     files: FileMetadata[],
     loadingFiles: boolean,
-    reloadFiles: () => void
+    reloadFiles: () => void,
+    Popup: JSX.Element | null
 }
 
 const AppContext = createContext<AppContextProps | undefined>(undefined);
@@ -147,6 +155,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         localStorage.setItem('deviceName', state.deviceName)
     }, [state.deviceName])
     useEffect(() => {
+        if (!state.loaded) {
+            removePopup(true)
+        }
+    }, [state.loaded, removePopup])
+    useEffect(() => {
         if (window.updates) {
             const onUpdateAvailable = () => {
                 setUpdateAvailable(true)
@@ -169,9 +182,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
              removePopup,
              files,
             reloadFiles,
-            loadingFiles }}>
+            loadingFiles,
+            Popup }}>
             <SocketProvider>
-                {Popup}
                 {children}
                 {updateAvailable && <UpdateAvailable setVisible={setUpdateAvailable} />}
             </SocketProvider>

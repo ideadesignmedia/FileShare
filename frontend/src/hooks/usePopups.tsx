@@ -5,16 +5,20 @@ import PopupComponent from '../components/Popup'
 const ConfirmPopup = React.lazy(() => import('../components/ConfirmPopup'))
 const AlertPopup = React.lazy(() => import('../components/AlertPopup'))
 const SavedFilesPopup = React.lazy(() => import('../components/SavedFilesPopup'))
+const SettingsPopup = React.lazy(() => import('../components/SettingsPopup'))
 
 export default function usePopups() {
     const [popups, setPopups] = React.useState<({ popup: JSX.Element, onClose?: () => void, showClose: boolean })[]>([])
     const currentPops = useRef<Map<JSX.Element, string>>(new Map())
     const removePopup = useCallback((all?: boolean) => {
         setPopups((popups) => {
-            if (!all) {
+            if (all) {
+                currentPops.current.clear()
+                return []
+            } else {
                 currentPops.current.delete(popups[0]?.popup)
+                return popups.slice(1)
             }
-            return all ? [] : popups.slice(1)
         })
     }, [])
     const addPopup = useCallback((popup: string, options?: any) => {
@@ -36,6 +40,11 @@ export default function usePopups() {
             }
             case 'saved-files': {
                 element = <SavedFilesPopup />
+                showClose = true
+                break
+            }
+            case 'settings': {
+                element = <SettingsPopup />
                 showClose = true
                 break
             }

@@ -14,6 +14,9 @@ export const useWS = (url: string, onMessage: (data: ServerMessage, send: (messa
     const closedRef = React.useRef(false)
     const reconnectRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
     const send = useCallback((data: ClientMessage) => {
+        if ((data as any)?.type === 'logout') {
+            closedRef.current = true
+        }
         if (wsRef.current) {
             messageQueue.current.push(data)
             if (wsRef.current?.readyState === WebSocket.OPEN && authorizedRef.current) {
@@ -111,7 +114,7 @@ export const useWS = (url: string, onMessage: (data: ServerMessage, send: (messa
                     clearInterval(heartbeat)
                     messageQueue.current = []
                     if (onClose) onClose(ws as WebSocket)
-                    if (event?.code === 4900 || !hasAuth) {
+                    if (event?.code === 4900 || !hasAuth || closedRef.current) {
                         wsRef.current = null
                         setWS(null)
                         return true
