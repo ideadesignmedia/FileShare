@@ -221,3 +221,24 @@ export async function createDecryptionStreamCTR(
 
     return decryptChunk;
 }
+
+
+export const createEncrypter = async (password: string): Promise<{ key: Uint8Array, iv: Uint8Array, encrypt: (chunk: Uint8Array) => Promise<Uint8Array> }> => {
+    const { salt: key, iv } = genSalts()
+    const encrypt = await createEncryptionStream(password, key, iv)
+    return { encrypt, key, iv }
+}
+
+export const createEncrypterCTR = async (password: string): Promise<{ key: Uint8Array, iv: Uint8Array, encrypt: ((chunk: Uint8Array, index: number) => Promise<Uint8Array>) | ((chunk: Uint8Array, index: number) => Promise<Uint8Array>) }> => {
+    const { baseCounter, salt } = getCTRBase()
+    const encrypt = await createEncryptionStreamCTR(password, salt, baseCounter)
+    return { encrypt, key: salt, iv: baseCounter }
+}
+
+export const createDecrypter = (password: string, key: Uint8Array, iv: Uint8Array) => {
+    return createDecryptionStream(password, key, iv)
+}
+
+export const createDecrypterCTR = (password: string, salt: Uint8Array, baseCounter: Uint8Array) => {
+    return createDecryptionStreamCTR(password, salt, baseCounter)
+}

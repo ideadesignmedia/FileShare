@@ -13,11 +13,29 @@ export type FileMetadata = {
     downloaded_at: number,
     stored_in_db: boolean
 }
+export type SavedChunk = {
+    id: number,
+    fileId: string,
+    chunkIndex: number,
+    chunkData: Uint8Array
+}
+export type DownloadMetadata = {
+    id: number,
+    fileId: string,
+    deviceId: string,
+    name: string,
+    type: string,
+    size: string,
+    started_at: number,
+    resumed_at?: number,
+    stored_in_db: boolean
+}
+
 export async function openIndexedDB(): Promise<IDBDatabase> {
     if (dbInstance) return dbInstance;
 
     return new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open("fileTransferDB", 2); // ⬅️ bumped to version 2
+        const request = indexedDB.open("fileTransferDB", 3); // ⬅️ bumped to version to 3
 
         request.onupgradeneeded = () => {
             const db = request.result;
@@ -36,6 +54,13 @@ export async function openIndexedDB(): Promise<IDBDatabase> {
                 metaStore.createIndex("pathnameIndex", "pathname", { unique: false });
                 metaStore.createIndex("downloadedAtIndex", "downloaded_at", { unique: false });
                 metaStore.createIndex("storedInDbIndex", "stored_in_db", { unique: false });
+            }
+
+            // File download store
+            if (!db.objectStoreNames.contains('fileDownload')) {
+                const downloadStore = db.createObjectStore('fileDownload', { keyPath: 'primaryId', autoIncrement: true })
+                downloadStore.createIndex('downloadIdIndex', 'fileId', { unique: true })
+                downloadStore.createIndex('deviceIdIndex', 'deviceId', { unique: false })
             }
         };
 
@@ -86,16 +111,16 @@ export async function openIndexedDB(): Promise<IDBDatabase> {
                     const getDeleteFiles: () => Promise<void> = () => {
                         const addFiles: (dir: string) => Promise<void> = (dir: string) => {
                             return window.FileSystemAPI.readDirectory(dir).then((entries) => {
-                               const proms = []
-                               for (let i = 0; i < entries.length; i++) {
+                                const proms = []
+                                for (let i = 0; i < entries.length; i++) {
                                     const entry = entries[i]
                                     if (entry.isDirectory) {
                                         proms.push(addFiles(entry.pathname))
-                                    } else [
+                                    } else[
                                         deleteFiles.push(entry.pathname)
                                     ]
-                               } 
-                               return Promise.all(proms).then(() => {})
+                                }
+                                return Promise.all(proms).then(() => { })
                             })
                         }
                         return addFiles(window.FileSystemAPI.fileDir)
@@ -136,7 +161,7 @@ export async function openIndexedDB(): Promise<IDBDatabase> {
                                         store.delete(key);
                                     }
                                 };
-    
+
                                 tx.oncomplete = () => resolve();
                                 tx.onerror = () => reject(tx.error);
                             });
@@ -188,6 +213,8 @@ export async function openIndexedDB(): Promise<IDBDatabase> {
         request.onerror = (e) => reject(e);
     });
 }
+
+
 export async function saveChunkToIndexedDB(fileId: string, chunkIndex: number, chunkData: Uint8Array): Promise<void> {
     const db = await openIndexedDB();
     const tx = db.transaction("chunks", "readwrite");
@@ -359,6 +386,108 @@ export async function listAllFileMetadata(): Promise<Array<FileMetadata>> {
 
     return new Promise((resolve, reject) => {
         const request = store.openCursor();
+        request.onsuccess = (event: any) => {
+            const cursor = event.target.result;
+            if (cursor) {
+                result.push(cursor.value);
+                cursor.continue();
+            } else {
+                for (let i = 0; i < result.length; i++) {
+                    result[i].stored_in_db = (result[i].stored_in_db as any) === 'true'
+                }
+                resolve(result);
+            }
+        };
+        request.onerror = () => reject(request.error);
+    });
+}
+
+export async function addDownload(fileId: string, deviceId: string, name: string, type: string, size: number, started_at: number, totalChunks = 0) {
+    const db = await openIndexedDB();
+    const tx = db.transaction("downloadMetadata", "readwrite");
+    const store = tx.objectStore("downloadMetadata");
+    const index = store.index('downloadIdIndex')
+    const request = index.get(fileId)
+    return new Promise<void>((resolve, reject) => {
+        request.onsuccess = () => {
+            const existing = request.result;
+            if (existing) {
+                store.put({ ...existing, deviceId, name, type, size, started_at, stored_in_db: totalChunks > 0, totalChunks });
+            } else {
+                store.put({ fileId, deviceId, name, type, size, started_at,  stored_in_db: totalChunks > 0, totalChunks });
+            }
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    })
+}
+
+export async function updateDownload({ fileId, resumed_at, chunks_received}: {
+    fileId: string,
+    resumed_at?: number,
+    chunks_received?: number
+}) {
+    const db = await openIndexedDB();
+    const tx = db.transaction("downloadMetadata", "readwrite");
+    const store = tx.objectStore("downloadMetadata");
+    const index = store.index('downloadIdIndex')
+    const request = index.get(fileId)
+    return new Promise<void>((resolve, reject) => {
+        let errored = false
+        request.onsuccess = () => {
+            const existing = request.result;
+            if (!existing) {
+                errored = true
+                return
+            }
+            store.put({
+                ...existing,
+                resumed_at: resumed_at || existing.resumed_at,
+                chunks_received: chunks_received || existing.chunks_received
+            });
+        };
+        tx.oncomplete = () => {
+            if (errored) return reject(new Error('File not found'))
+            resolve();
+        }
+        tx.onerror = () => reject(tx.error);
+    })
+}
+
+export async function listAllDownloadMetadata(): Promise<DownloadMetadata[]> {
+    const db = await openIndexedDB();
+    const tx = db.transaction("downloadMetadata", "readonly");
+    const store = tx.objectStore("downloadMetadata");
+
+    const result: Array<DownloadMetadata> = [];
+
+    return new Promise((resolve, reject) => {
+        const request = store.openCursor();
+        request.onsuccess = (event: any) => {
+            const cursor = event.target.result;
+            if (cursor) {
+                result.push(cursor.value);
+                cursor.continue();
+            } else {
+                for (let i = 0; i < result.length; i++) {
+                    result[i].stored_in_db = (result[i].stored_in_db as any) === 'true'
+                }
+                resolve(result);
+            }
+        };
+        request.onerror = () => reject(request.error);
+    });
+}
+
+export async function listAllDownloadsWithDevice(deviceId: string): Promise<DownloadMetadata[]> {
+    const db = await openIndexedDB();
+    const tx = db.transaction("downloadMetadata", "readonly");
+    const store = tx.objectStore("downloadMetadata");
+    const index = store.index('deviceIdIndex')
+    const result: Array<DownloadMetadata> = [];
+
+    return new Promise((resolve, reject) => {
+        const request = index.openCursor(IDBKeyRange.only(deviceId));
         request.onsuccess = (event: any) => {
             const cursor = event.target.result;
             if (cursor) {

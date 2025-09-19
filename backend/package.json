@@ -1,6 +1,11 @@
 {
   "name": "real-src",
   "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsc -w -p tsconfig.json"
+  },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^14.18.63",

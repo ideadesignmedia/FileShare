@@ -1,23 +1,20 @@
 import React, { useContext, createContext, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSocket } from './SocketContext';
 import { emit, emitter, useAppContext } from './AppContext';
-import { rtcOptions } from '../constants';
+import { chunkSize, largeFileSize, maxBufferAmount, maxMessageSize, numberOfChannels, rtcOptions } from '../constants';
 import { saveChunkToIndexedDB, deleteFileFromIndexedDB, createIndexedDBChunkStream, saveFileMetadata, deleteFileMetadata } from '../utils/indexed-db';
 import { BSON } from 'bson';
 import { compressSync as brotliCompress, decompressSync as brotliDecompress, Deflate, Inflate } from "fflate";
 import { formatBytes } from '../utils/format';
-import { createDecryptionStream, createEncryptionStream, genSalts, getCTRBase, createDecryptionStreamCTR, createEncryptionStreamCTR } from '../utils/encryption';
+import { createEncrypter, createEncrypterCTR, createDecrypterCTR, createDecrypter } from '../utils/encryption';
 import { deviceId as myDeviceId } from '../constants'
 import device from '../constants/device-browser';
 import { Buffer } from 'buffer';
 import { downloadBlob } from '../utils/handle-file';
 import { createChunkedFileWriter } from '../utils/file-writer';
+import { FileMessage, Parts, PeerBroadCastMessage, PeerMessage, ReceivedFileInfo, TransferStatus } from '../types/peer-to-peer';
+import { checkIfFile } from '../utils/check-if-file';
 
-const maxMessageSize = 65536 - 300;
-const chunkSize = 1024 * 1024 // 1MB
-const maxBufferAmount = 16 * 1024 * 1024 - (maxMessageSize + 300)
-export const largeFileSize = 10 * 1024 * 1024; // 10MB
-const numberOfChannels = 4;
 export type P2PContextType = {
     sendMessage: (deviceId: string, payload: PeerMessage, requestId?: string, timeout?: number) => Promise<PeerMessage | null>;
     sendFile: (deviceId: string, file: File, fileId: string) => void;
@@ -40,68 +37,8 @@ export type P2PContextType = {
     autoDownloadFiles: boolean
 };
 
-export type PeerMessage = { requestId?: string } & (
-    { type: 'connect' } |
-    { type: 'webrtc-offer', data: any } |
-    { type: 'webrtc-answer', data: any } |
-    { type: 'webrtc-ice', data: any } |
-    { type: 'file-accept', fileId: string } |
-    { type: 'file-reject', fileId: string } |
-    {
-        type: 'file-metadata',
-        data: {
-            fileId: string,
-            name: string,
-            type: string,
-            size: number,
-            small: boolean
-        }
-    }
-);
-
-type FileMessage = { type: 'file-chunk', data: ArrayBuffer, fileId: string, chunkNumber: number, chunkPart: number, totalParts: number }
-    | { type: 'file-end', fileId: string, totalChunks: number }
-    | {
-        type: 'file-metadata',
-        fileId: string,
-        data: {
-            name: string,
-            type: string,
-            size: number,
-            key: number[],
-            iv: number[],
-            small: boolean
-        }
-    }
-    | { type: 'file-pause', fileId: string }
-    | { type: 'file-resume', fileId: string }
-    | { type: 'file-cancel', fileId: string }
-    | { type: 'cancel-upload', fileId: string };
-
-type PeerBroadCastMessage = {
-    type: 'ping';
-};
-
 const P2PContext = createContext<P2PContextType | undefined>(undefined);
-type Parts = { parts: Map<number, Uint8Array>, totalParts: number }
-const checkIfFile = (file: File | ReadableStream): boolean => Boolean(file instanceof File || (
-    file
-    && typeof (file as any).name === 'string'
-    && typeof (file as any).type === 'string'
-    && typeof (file as any).size === 'number'
-    && file instanceof Blob
-))
-type ReceivedFileInfo = {
-    name: string;
-    type: string,
-    size: number,
-    progress: number,
-    chunkCount: number,
-    chunksReceived: number,
-    finalized: boolean,
-    small: boolean,
-    decrypt: ((chunk: Uint8Array) => Promise<Uint8Array>) | ((chunk: Uint8Array, index: number) => Promise<Uint8Array>)
-}
+
 export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
     const { state, confirm, flash } = useAppContext();
     const { send } = useSocket();
@@ -116,7 +53,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
     const receivedFiles = useRef<{ [deviceId: string]: { [fileId: string]: ReceivedFileInfo } }>({});
     const receivedFilePromises = useRef<{ [deviceId: string]: { [fileId: string]: Promise<ReceivedFileInfo> } }>({})
     const receivedChunks = useRef<{ [deviceId: string]: { [fileId: string]: Map<number, Parts> } }>({});
-    const currentTransfers = useRef<{ [deviceId: string]: { [fileId: string]: 'uploading' | 'paused' | 'cancelled' } }>({});
+    const currentTransfers = useRef<{ [deviceId: string]: { [fileId: string]: TransferStatus } }>({});
     const pausedTransfers = useRef<{ [deviceId: string]: { [fileId: string]: boolean } }>({});
     const pendingFileRequests = useRef<{
         [fileId: string]: {
@@ -147,23 +84,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             localStorage.removeItem('auto-download')
         }
     }, [autoDownloadFiles])
-    //ctr for large files because it allows for streaming while encrypting however just encrypt the full file for the small ones.
-    const createEncrypter = useCallback(async (password: string): Promise<{ key: Uint8Array, iv: Uint8Array, encrypt: (chunk: Uint8Array) => Promise<Uint8Array> }> => {
-        const { salt: key, iv } = genSalts()
-        const encrypt = await createEncryptionStream(password, key, iv)
-        return { encrypt, key, iv }
-    }, [])
-    const createEncrypterCTR = useCallback(async (password: string): Promise<{ key: Uint8Array, iv: Uint8Array, encrypt: ((chunk: Uint8Array, index: number) => Promise<Uint8Array>) | ((chunk: Uint8Array, index: number) => Promise<Uint8Array>) }> => {
-        const { baseCounter, salt } = getCTRBase()
-        const encrypt = await createEncryptionStreamCTR(password, salt, baseCounter)
-        return { encrypt, key: salt, iv: baseCounter }
-    }, [])
-    const createDecrypter = useCallback((password: string, key: Uint8Array, iv: Uint8Array) => {
-        return createDecryptionStream(password, key, iv)
-    }, [])
-    const createDecrypterCTR = useCallback((password: string, salt: Uint8Array, baseCounter: Uint8Array) => {
-        return createDecryptionStreamCTR(password, salt, baseCounter)
-    }, [])
     const sendMessage = (deviceId: string, payload: PeerMessage, requestId?: string, timeout = 5000): Promise<PeerMessage | null> => {
         const transmit = () => {
             send(
@@ -1242,7 +1162,6 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             autoDownloadFiles,
             setAutoAcceptFiles,
             setAutoDownloadFiles,
-
         }}>
             {children}
         </P2PContext.Provider>

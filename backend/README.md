@@ -1,15 +1,23 @@
 # real-src
 
-To install dependencies:
+Node-based development (no Bun required).
+
+Install dependencies:
 
 ```bash
-bun install
+npm install
 ```
 
-To run:
+Build TypeScript and start:
 
 ```bash
-bun run index.ts
+npm run build
+npm start
 ```
 
-This project was created using `bun init` in bun v1.2.4. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
+Environment variables to configure:
+
+- `DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME`
+- `PORT` (WebSocket server port)
+- `SERVER_URL` (connection-manager URL)
+- `SERVER_TOKEN` (auth token for manager)
