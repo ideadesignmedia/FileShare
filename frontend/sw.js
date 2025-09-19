@@ -1,4 +1,4 @@
-const cacheNumber = 205
+const cacheNumber = 206
 const cachePrefix = 'Cache-v'
 const toCacheName = (cacheNumber) => `${cachePrefix}${cacheNumber}`
 const cacheName = toCacheName(cacheNumber)
@@ -11,8 +11,7 @@ const subdomainTest = new RegExp(/\./g)
 const localHost = /localhost/
 const fileTest = /(\.[\w]+)+$/;
 const cachedAssets = [
-    '/',
-    '/share.html'
+    '/'
 ].map(a => `${self.location.origin}${a}`)
 const cachableUris = localHost.test(self.location.origin) ? [] : []
 var manifestPromise
@@ -174,6 +173,9 @@ self.addEventListener('message', (e) => {
 self.addEventListener('fetch', (e) => {
     const { method, url, headers } = e.request
     const isCacheable = cachableUrl(url)
+    if (method === 'GET' && /share.html$/.test(url)) {
+        return e.respondWith(Response.redirect(self.location.origin + '/', 302))
+    }
     if (method === 'POST' && /share.html$/.test(url)) {
         const DB_NAME = 'fileTransferDB'
         const DB_VERSION = 3
