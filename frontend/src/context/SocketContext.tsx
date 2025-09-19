@@ -19,13 +19,16 @@ export const SocketProvider: React.FC<React.PropsWithChildren<{}>> = ({ children
                     localStorage.removeItem('token');
                     dispatch({ type: 'set-token', token: '' })
                     dispatch({ type: 'set-credentials', credentials: null });
+                    dispatch({ type: 'set-login-error', value: 'Invalid username or password. The username may already be taken.' })
                     dispatch({ type: 'set-loading', loading: false });
                     dispatch({ type: 'set-loaded', loaded: false })
                     dispatch({ type: 'set-peers', peers: [] })
+                    send({ type: 'logout' } as ClientMessage)
                 } else {
                     localStorage.setItem('token', data.data.token);
                     setAuthorized(true);
                     dispatch({ type: 'set-token', token: data.data.token });
+                    dispatch({ type: 'set-login-error', value: null })
                     dispatch({type: 'set-name', value: data.data.deviceName || ''})
                     send({ type: 'devices', requestId: 'devices' + Date.now() });
                 }

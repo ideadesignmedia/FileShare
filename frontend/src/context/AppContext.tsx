@@ -49,6 +49,9 @@ type Action = {
         deviceId: string,
         deviceName: string
     }
+} | {
+    type: 'set-login-error',
+    value: string | null
 }
 
 export type Peer = {
@@ -64,7 +67,8 @@ interface AppState {
         username: string,
         password: string
     } | null,
-    deviceName: string
+    deviceName: string,
+    loginError: string | null
 }
 const initialState: AppState = {
     token: localStorage.getItem('token') || '',
@@ -72,7 +76,8 @@ const initialState: AppState = {
     loading: false,
     loaded: false,
     credentials: null,
-    deviceName: localStorage.getItem('deviceName') || ''
+    deviceName: localStorage.getItem('deviceName') || '',
+    loginError: null
 }
 function appReducer(state: AppState, action: Action): AppState {
     switch (action.type) {
@@ -102,6 +107,8 @@ function appReducer(state: AppState, action: Action): AppState {
                     }
                 })
             }
+        case 'set-login-error':
+            return { ...state, loginError: action.value }
         default:
             return state;
     }

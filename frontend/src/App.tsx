@@ -25,16 +25,20 @@ function App() {
                     <div className="text-xs uppercase tracking-wide text-blue-700 font-semibold mb-2">Welcome</div>
                     <h3 className="mb-2">Sign in</h3>
                     <p className="text-sm text-slate-700 mb-3">Use any username and password. Sign in on another device with the same credentials to connect and share files securely.</p>
+                    {state.loginError && (
+                      <div className="text-red-600 text-sm mb-2">{state.loginError}</div>
+                    )}
                     <form className="flex flex-col gap-3" onSubmit={e => {
                       e.preventDefault()
+                      dispatch({ type: 'set-login-error', value: null })
                       dispatch({ type: 'set-credentials', credentials })
                       setTimeout(() => open(), 100)
                     }}>
                       <label className="text-sm text-slate-700">Username
-                        <input className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" type="text" placeholder="e.g. Alex" value={credentials.username} onChange={e => setCredentials({ ...credentials, username: e.target.value })} />
+                        <input className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" type="text" placeholder="e.g. Alex" value={credentials.username} onChange={e => { if (state.loginError) dispatch({ type: 'set-login-error', value: null }); setCredentials({ ...credentials, username: e.target.value }) }} />
                       </label>
                       <label className="text-sm text-slate-700">Password
-                        <input className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" type="password" placeholder="Enter a password" value={credentials.password} onChange={e => setCredentials({ ...credentials, password: e.target.value })} />
+                        <input className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" type="password" placeholder="Enter a password" value={credentials.password} onChange={e => { if (state.loginError) dispatch({ type: 'set-login-error', value: null }); setCredentials({ ...credentials, password: e.target.value }) }} />
                       </label>
                       <Button className="w-full uppercase tracking-wider" type="submit" size="lg" variant="primary">Continue</Button>
                     </form>
