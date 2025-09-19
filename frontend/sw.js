@@ -179,7 +179,7 @@ self.addEventListener('fetch', (e) => {
                 if (cached) return cached;
                 return fetch('/share.html').then(resp => {
                     if (resp.ok) {
-                        caches.open(CACHE_NAME).then(cache => cache.put('/share.html', resp.clone()));
+                        caches.open(cacheName).then(cache => cache.put('/share.html', resp.clone()));
                     }
                     return resp;
                 });
@@ -189,7 +189,7 @@ self.addEventListener('fetch', (e) => {
     if ((method === 'GET' && (cachedAssets.includes(url) || isCacheable))) {
         return e.respondWith(caches.match(e.request).then(res => {
             if (res) return res
-            return fetch(self.location.origin + '/share.html').then(resp => {
+            return fetch(e.request).then(resp => {
                 if (resp.status === 200) cacheResponse(e.request, resp.clone())
                 return resp
             })
@@ -303,4 +303,3 @@ self.addEventListener('notificationclick', function (event) {
         );
     }
 });
-
