@@ -27,7 +27,6 @@
     "tailwindcss": "^4.0.14"
   },
   "devDependencies": {
-    "@types/mime-types": "^2.1.4",
     "@eslint/js": "^9.21.0",
     "@types/cordova": "^11.0.3",
     "@types/react": "^19.0.10",

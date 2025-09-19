@@ -11,7 +11,8 @@ const subdomainTest = new RegExp(/\./g)
 const localHost = /localhost/
 const fileTest = /(\.[\w]+)+$/;
 const cachedAssets = [
-    '/'
+    '/',
+    '/share.html'
 ].map(a => `${self.location.origin}${a}`)
 const cachableUris = localHost.test(self.location.origin) ? [] : []
 var manifestPromise
