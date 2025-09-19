@@ -1,4 +1,4 @@
-const cacheNumber = 204 // Always increment this number when you make changes to the frontend bundle
+const cacheNumber = 205
 const cachePrefix = 'Cache-v'
 const toCacheName = (cacheNumber) => `${cachePrefix}${cacheNumber}`
 const cacheName = toCacheName(cacheNumber)
@@ -175,17 +175,70 @@ self.addEventListener('fetch', (e) => {
     const { method, url, headers } = e.request
     const isCacheable = cachableUrl(url)
     if (method === 'POST' && /share.html$/.test(url)) {
-        return e.respondWith(
-            caches.match('/share.html').then(cached => {
-                if (cached) return cached;
-                return fetch('/share.html').then(resp => {
-                    if (resp.ok) {
-                        caches.open(cacheName).then(cache => cache.put('/share.html', resp.clone()));
-                    }
-                    return resp;
-                });
-            })
-        );
+        const DB_NAME = 'fileTransferDB'
+        const DB_VERSION = 3
+        const CHUNK_SIZE = 1024 * 1024
+        const openDB = () => new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, DB_VERSION)
+            req.onupgradeneeded = () => {
+                const db = req.result
+                if (!db.objectStoreNames.contains('chunks')) {
+                    const chunks = db.createObjectStore('chunks', { keyPath: 'chunkId' })
+                    chunks.createIndex('fileIdIndex', 'fileId', { unique: false })
+                    chunks.createIndex('chunkIndexIndex', ['fileId', 'chunkIndex'], { unique: true })
+                }
+                if (!db.objectStoreNames.contains('fileMetadata')) {
+                    const meta = db.createObjectStore('fileMetadata', { keyPath: 'primaryId', autoIncrement: true })
+                    meta.createIndex('fileIdIndex', 'fileId', { unique: true })
+                    meta.createIndex('pathnameIndex', 'pathname', { unique: false })
+                    meta.createIndex('downloadedAtIndex', 'downloaded_at', { unique: false })
+                    meta.createIndex('storedInDbIndex', 'stored_in_db', { unique: false })
+                }
+            }
+            req.onsuccess = () => resolve(req.result)
+            req.onerror = () => reject(req.error)
+        })
+        const saveMeta = (db, meta) => new Promise((resolve, reject) => {
+            const tx = db.transaction('fileMetadata', 'readwrite')
+            const store = tx.objectStore('fileMetadata')
+            const index = store.index('fileIdIndex')
+            const getReq = index.get(meta.fileId)
+            getReq.onsuccess = () => {
+                const existing = getReq.result
+                if (existing) store.put({ ...existing, ...meta })
+                else store.put(meta)
+            }
+            tx.oncomplete = () => resolve()
+            tx.onerror = () => reject(tx.error)
+        })
+        const saveChunk = (db, fileId, chunkIndex, chunkData) => new Promise((resolve, reject) => {
+            const tx = db.transaction('chunks', 'readwrite')
+            const store = tx.objectStore('chunks')
+            store.put({ chunkId: `${fileId}-chunk-${chunkIndex}`, fileId, chunkIndex, chunkData })
+            tx.oncomplete = () => resolve()
+            tx.onerror = () => reject(tx.error)
+        })
+        const handleShare = async () => {
+            try {
+                const formData = await e.request.formData()
+                const file = formData.get('file')
+                if (!(file instanceof File)) {
+                    return Response.redirect(self.location.origin + '/', 303)
+                }
+                const db = await openDB()
+                const fileId = self.crypto.randomUUID()
+                const chunkCount = Math.ceil(file.size / CHUNK_SIZE)
+                await saveMeta(db, { fileId, name: file.name, type: file.type, size: file.size, pathname: '', downloaded_at: Date.now(), stored_in_db: 'true' })
+                for (let i = 0; i < chunkCount; i++) {
+                    const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
+                    const buffer = new Uint8Array(await chunk.arrayBuffer())
+                    await saveChunk(db, fileId, i, buffer)
+                }
+            } catch (err) {
+            }
+            return Response.redirect(self.location.origin + '/', 303)
+        }
+        return e.respondWith(handleShare())
     }
     if ((method === 'GET' && (cachedAssets.includes(url) || isCacheable))) {
         return e.respondWith(caches.match(e.request).then(res => {
