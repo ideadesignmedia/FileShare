@@ -6,10 +6,12 @@ const ConfirmPopup = React.lazy(() => import('../components/ConfirmPopup'))
 const AlertPopup = React.lazy(() => import('../components/AlertPopup'))
 const SavedFilesPopup = React.lazy(() => import('../components/SavedFilesPopup'))
 const SettingsPopup = React.lazy(() => import('../components/SettingsPopup'))
+const SelectSavedFile = React.lazy(() => import('../components/SelectSavedFile'))
+const FileInfoPopup = React.lazy(() => import('../components/FileInfoPopup'))
 
 export default function usePopups() {
-    const [popups, setPopups] = React.useState<({ popup: JSX.Element, onClose?: () => void, showClose: boolean })[]>([])
-    const currentPops = useRef<Map<JSX.Element, string>>(new Map())
+    const [popups, setPopups] = React.useState<({ popup: React.ReactElement, onClose?: () => void, showClose: boolean })[]>([])
+    const currentPops = useRef<Map<React.ReactElement, string>>(new Map())
     const removePopup = useCallback((all?: boolean) => {
         setPopups((popups) => {
             if (all) {
@@ -22,7 +24,7 @@ export default function usePopups() {
         })
     }, [])
     const addPopup = useCallback((popup: string, options?: any) => {
-        let element: JSX.Element | null = null
+        let element: React.ReactElement | null = null
         let onClose: undefined | (() => void) = undefined
         let showClose = false
         switch (popup) {
@@ -48,6 +50,19 @@ export default function usePopups() {
                 showClose = true
                 break
             }
+            case 'select-saved-file': {
+                element = <SelectSavedFile onSelect={(file: any) => {
+                    removePopup()
+                    if (options && typeof options.onSelect === 'function') options.onSelect(file)
+                }} />
+                showClose = true
+                break
+            }
+            case 'file-info': {
+                element = <FileInfoPopup file={options?.file} />
+                showClose = true
+                break
+            }
             default: {
                 console.error('Unknown popup: ' + popup)
                 break
@@ -65,7 +80,15 @@ export default function usePopups() {
         const PopupContent = popups.length > 0 ? popups[0] : null
         if (!PopupContent) return null
         const { onClose, showClose, popup } = PopupContent
-        return <PopupComponent removePopup={onClose || showClose ? () => {
+        const isSavedFiles = currentPopup === 'saved-files'
+        return <PopupComponent
+          contentClassName={undefined}
+          topPadClassName={isSavedFiles ? 'pt-0' : undefined}
+          closeLeftFixed={false}
+          closeRightFixed={false}
+          closeRightAbsolute={isSavedFiles}
+          closeOnRoot={false}
+          removePopup={onClose || showClose ? () => {
             if (typeof onClose === 'function') onClose()
             removePopup()
         } : undefined}>
@@ -73,6 +96,6 @@ export default function usePopups() {
                 {popup}
             </Suspense>
         </PopupComponent>
-    }, [popups])
+    }, [popups, currentPopup, removePopup])
     return { addPopup, removePopup, Popup, currentPopup }
 }

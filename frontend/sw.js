@@ -1,4 +1,4 @@
-const cacheNumber = 206
+const cacheNumber = 207
 const cachePrefix = 'Cache-v'
 const toCacheName = (cacheNumber) => `${cachePrefix}${cacheNumber}`
 const cacheName = toCacheName(cacheNumber)
@@ -172,13 +172,18 @@ self.addEventListener('message', (e) => {
 
 self.addEventListener('fetch', (e) => {
     const { method, url, headers } = e.request
+    const pathname = new URL(url).pathname
+    // Always bypass the service worker for Vite dev assets and module sources
+    if (pathname.startsWith('/@vite/') || pathname.startsWith('/src/') || pathname.startsWith('/@react-refresh')) {
+        return e.respondWith(fetch(e.request))
+    }
     const isCacheable = cachableUrl(url)
     if (method === 'GET' && /share.html$/.test(url)) {
         return e.respondWith(Response.redirect(self.location.origin + '/', 302))
     }
     if (method === 'POST' && /share.html$/.test(url)) {
         const DB_NAME = 'fileTransferDB'
-        const DB_VERSION = 3
+        const DB_VERSION = 4
         const CHUNK_SIZE = 1024 * 1024
         const openDB = () => new Promise((resolve, reject) => {
             const req = indexedDB.open(DB_NAME, DB_VERSION)
@@ -285,7 +290,7 @@ self.addEventListener('fetch', (e) => {
             })
         }))
     }
-    if (method === 'GET' && sameDomain(self.location.origin, url) && !fileTest.test(new URL(url).pathname)) {
+    if (method === 'GET' && e.request.mode === 'navigate' && sameDomain(self.location.origin, url) && !fileTest.test(pathname)) {
         //automatically redirect to the homepage from service worker when they request a route other than home.
         //The SPA should load and send them to the correct path within the SPA.
         //i.e if they go to /providers/payments the SPA should be responsible for routing them there via the app state logic.

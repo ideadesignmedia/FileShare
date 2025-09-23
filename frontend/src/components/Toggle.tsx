@@ -8,7 +8,7 @@ interface ToggleProps {
 
 const Toggle: FC<ToggleProps> = ({ enabled, onToggle, label }) => {
   return (
-    <div className="flex items-center flex-wrap justify-start">
+    <div className="flex items-center justify-between w-full sm:flex-1">
       {label && <span className="mr-3 font-medium text-sm text-slate-700">{label}</span>}
       <button
         type="button"

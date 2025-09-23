@@ -81,8 +81,11 @@ export const SocketProvider: React.FC<React.PropsWithChildren<{}>> = ({ children
     const onSocketOpen = useCallback((ws: WebSocket) => {
         dispatch({ type: 'set-loading', loading: true });
         dispatch({ type: 'set-loaded', loaded: false });
+        const doSend = (msg: ClientMessage) => {
+            try { ws.send(JSON.stringify(msg)) } catch {}
+        }
         if (state.token) {
-            send({
+            doSend({
                 type: 'auth', data: {
                     token: state.token,
                     deviceId,
@@ -90,7 +93,7 @@ export const SocketProvider: React.FC<React.PropsWithChildren<{}>> = ({ children
                 }
             });
         } else if (state.credentials) {
-            send({
+            doSend({
                 type: 'auth',
                 data: {
                     username: state.credentials.username,

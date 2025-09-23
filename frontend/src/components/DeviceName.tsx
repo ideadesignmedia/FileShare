@@ -15,8 +15,8 @@ export default React.memo(function DeviceName() {
     useEffect(() => {
         setInput(state.deviceName)
     }, [state.deviceName])
-    if (!changing) return <div className="cursor-pointer flex gap-2 items-center justify-center" onClick={() => setChanging(true)}><span className='text-sm text-slate-600'>Device Name</span> <h5 className='text-slate-900'>{state.deviceName || localStorage.getItem('deviceName') || localStorage.getItem('device-id')}</h5> <Button size="sm" variant="outline">Change</Button></div>
-    return <div className="flex gap-2 items-center justify-center">
+    if (!changing) return <div className="cursor-pointer flex gap-2 items-center justify-start flex-wrap" onClick={() => setChanging(true)}><span className='text-sm text-slate-600'>Device Name</span> <h5 className='text-slate-900 break-words max-w-full'>{state.deviceName || localStorage.getItem('deviceName') || localStorage.getItem('device-id')}</h5> <Button size="sm" variant="outline" className='flex-1 sm:flex-none w-full sm:w-auto'>Change</Button></div>
+    return <div className="flex gap-2 items-center justify-start flex-wrap">
         <input className='w-48 px-2 py-1 rounded border border-slate-300 text-slate-900' type="text" value={input} onChange={e => {
             setInput(e.target.value)
         }} onKeyDown={(e) => {

@@ -6,7 +6,7 @@ type ButtonProps = {
   disabled?: boolean;
   className?: string;
   children: React.ReactNode;
-  onClick?: () => void;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
   type?: 'submit' | 'reset' | 'button'
   icon?: boolean;
 };
@@ -18,7 +18,7 @@ const Button: React.FC<ButtonProps> = ({
   className = "",
   children,
   onClick,
-  type,
+  type = 'button',
   icon = false,
 }) => {
   // Base button styles

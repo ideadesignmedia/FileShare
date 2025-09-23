@@ -11,7 +11,9 @@ export type FileMetadata = {
     size: number,
     pathname: string;
     downloaded_at: number,
-    stored_in_db: boolean
+    stored_in_db: boolean,
+    folderRoot?: string,
+    relativePath?: string
 }
 export type SavedChunk = {
     id: number,
@@ -25,17 +27,39 @@ export type DownloadMetadata = {
     deviceId: string,
     name: string,
     type: string,
-    size: string,
+    size: number,
     started_at: number,
     resumed_at?: number,
-    stored_in_db: boolean
+    chunks_received?: number,
+    totalChunks?: number,
+    stored_in_db: boolean,
+    cancelled?: boolean
+}
+
+export type UploadSession = {
+    id: number,
+    fileId: string,
+    deviceId: string,
+    name: string,
+    type: string,
+    size: number,
+    small: boolean,
+    started_at: number,
+    sentChunks?: number,
+    totalChunks?: number,
+    password?: string,
+    key?: number[],
+    iv?: number[],
+    filePath?: string,
+    resumeSupported: boolean,
+    savedFileId?: string
 }
 
 export async function openIndexedDB(): Promise<IDBDatabase> {
     if (dbInstance) return dbInstance;
 
     return new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open("fileTransferDB", 3); // ⬅️ bumped to version to 3
+        const request = indexedDB.open("fileTransferDB", 4);
 
         request.onupgradeneeded = () => {
             const db = request.result;
@@ -62,6 +86,12 @@ export async function openIndexedDB(): Promise<IDBDatabase> {
                 downloadStore.createIndex('downloadIdIndex', 'fileId', { unique: true })
                 downloadStore.createIndex('deviceIdIndex', 'deviceId', { unique: false })
             }
+            // Upload session store for resumable uploads
+            if (!db.objectStoreNames.contains('uploadSession')) {
+                const uploadStore = db.createObjectStore('uploadSession', { keyPath: 'primaryId', autoIncrement: true })
+                uploadStore.createIndex('sessionIdIndex', 'fileId', { unique: true })
+                uploadStore.createIndex('deviceIdIndex', 'deviceId', { unique: false })
+            }
         };
 
         request.onsuccess = () => {
@@ -83,22 +113,46 @@ export async function openIndexedDB(): Promise<IDBDatabase> {
                         preservedFileIds.add(value.fileId);
                         cursor.continue();
                     } else {
-                        // Done collecting preserved fileIds
-                        const chunkCursorRequest = chunkStore.openCursor();
-                        chunkCursorRequest.onsuccess = (e: any) => {
-                            const cursor = e.target.result;
-                            if (cursor) {
-                                const chunk = cursor.value;
-                                if (!preservedFileIds.has(chunk.fileId)) {
-                                    chunkStore.delete(cursor.primaryKey);
+                        const startCleanup = () => {
+                            const ctx = dbInstance!.transaction(["chunks"], "readwrite");
+                            const store = ctx.objectStore("chunks");
+                            const req = store.openCursor();
+                            req.onsuccess = (e: any) => {
+                                const cursor = e.target.result;
+                                if (cursor) {
+                                    const chunk = cursor.value as SavedChunk;
+                                    if (!preservedFileIds.has(chunk.fileId)) {
+                                        store.delete(cursor.primaryKey);
+                                    }
+                                    cursor.continue();
                                 }
-                                cursor.continue();
+                            };
+                            req.onerror = () => {
+                                console.error("❌ Error during chunk cleanup");
+                                reject(req.error);
+                            };
+                        }
+                        if (dbInstance!.objectStoreNames.contains('fileDownload')) {
+                            const dltx = dbInstance!.transaction(["fileDownload"], "readonly");
+                            const dlStore = dltx.objectStore("fileDownload");
+                            const dlReq = dlStore.openCursor();
+                            dlReq.onsuccess = (ev: any) => {
+                                const cur = ev.target.result;
+                                if (cur) {
+                                    const d = cur.value as DownloadMetadata;
+                                    const total = d.totalChunks || 0;
+                                    const rc = d.chunks_received || 0;
+                                    const inProgress = !d.cancelled && (total === 0 || rc < total);
+                                    if (inProgress) preservedFileIds.add(d.fileId);
+                                    cur.continue();
+                                } else {
+                                    startCleanup();
+                                }
                             }
-                        };
-                        chunkCursorRequest.onerror = () => {
-                            console.error("❌ Error during chunk cleanup");
-                            reject(chunkCursorRequest.error);
-                        };
+                            dlReq.onerror = () => startCleanup();
+                        } else {
+                            startCleanup();
+                        }
                     }
                 };
                 metadataCursorRequest.onerror = () => {
@@ -287,6 +341,29 @@ export async function createIndexedDBChunkStream(fileId: string): Promise<Readab
     });
 }
 
+export async function createIndexedDBFileByteStream(fileId: string): Promise<ReadableStream<Uint8Array>> {
+    const base = await createIndexedDBChunkStream(fileId);
+    if (typeof (globalThis as any).TransformStream === 'undefined') {
+        return new ReadableStream<Uint8Array>({
+            async start(controller) {
+                const reader = (base as ReadableStream<any>).getReader();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (value && value.chunkData) controller.enqueue(value.chunkData as Uint8Array);
+                }
+                controller.close();
+            }
+        });
+    }
+    const ts = new TransformStream<any, Uint8Array>({
+        transform(chunk, controller) {
+            if (chunk && chunk.chunkData) controller.enqueue(chunk.chunkData as Uint8Array);
+        }
+    });
+    return (base as any).pipeThrough(ts as any);
+}
+
 export async function deleteFileFromIndexedDB(fileId: string): Promise<void> {
     const db = await openIndexedDB();
     const tx = db.transaction("chunks", "readwrite");
@@ -316,6 +393,28 @@ export async function deleteFileFromIndexedDB(fileId: string): Promise<void> {
     });
 }
 
+export async function getDownloadedBytes(fileId: string): Promise<number> {
+    const db = await openIndexedDB();
+    const tx = db.transaction("chunks", "readonly");
+    const store = tx.objectStore("chunks");
+    const index = store.index("fileIdIndex");
+    return new Promise<number>((resolve, reject) => {
+        let total = 0;
+        const request = index.openCursor(IDBKeyRange.only(fileId));
+        request.onsuccess = (event: any) => {
+            const cursor = event.target.result;
+            if (cursor) {
+                const value = cursor.value as SavedChunk & { chunkData: Uint8Array };
+                total += (value.chunkData?.byteLength || 0);
+                cursor.continue();
+            } else {
+                resolve(total);
+            }
+        };
+        request.onerror = () => reject(request.error);
+    });
+}
+
 export async function getFileMetadata(fileId: string): Promise<FileMetadata | null> {
     const db = await openIndexedDB();
     const tx = db.transaction("fileMetadata", "readonly");
@@ -335,7 +434,8 @@ export async function saveFileMetadata(
     size: number,
     pathname: string,
     downloaded_at: number,
-    stored_in_db: boolean
+    stored_in_db: boolean,
+    extra?: Partial<FileMetadata>
 ): Promise<void> {
     const db = await openIndexedDB();
     const tx = db.transaction("fileMetadata", "readwrite");
@@ -347,9 +447,9 @@ export async function saveFileMetadata(
         request.onsuccess = () => {
             const existing = request.result;
             if (existing) {
-                store.put({ ...existing, name, type, size, pathname, downloaded_at, stored_in_db: stored_in_db.toString() });
+                store.put({ ...existing, name, type, size, pathname, downloaded_at, stored_in_db: stored_in_db.toString(), ...(extra || {}) });
             } else {
-                store.put({ fileId, name, type, size, pathname, downloaded_at, stored_in_db: stored_in_db.toString() });
+                store.put({ fileId, name, type, size, pathname, downloaded_at, stored_in_db: stored_in_db.toString(), ...(extra || {}) });
             }
         };
         tx.oncomplete = () => resolve();
@@ -402,10 +502,24 @@ export async function listAllFileMetadata(): Promise<Array<FileMetadata>> {
     });
 }
 
+export async function clearAllStorage(): Promise<void> {
+    const db = await openIndexedDB();
+    const storeNames = ["chunks", "fileMetadata", "fileDownload", "uploadSession"] as const;
+    const tx = db.transaction(storeNames as unknown as string[], "readwrite");
+    storeNames.forEach((name) => {
+        const store = tx.objectStore(name as unknown as string);
+        store.clear();
+    });
+    return new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    })
+}
+
 export async function addDownload(fileId: string, deviceId: string, name: string, type: string, size: number, started_at: number, totalChunks = 0) {
     const db = await openIndexedDB();
-    const tx = db.transaction("downloadMetadata", "readwrite");
-    const store = tx.objectStore("downloadMetadata");
+    const tx = db.transaction("fileDownload", "readwrite");
+    const store = tx.objectStore("fileDownload");
     const index = store.index('downloadIdIndex')
     const request = index.get(fileId)
     return new Promise<void>((resolve, reject) => {
@@ -414,7 +528,7 @@ export async function addDownload(fileId: string, deviceId: string, name: string
             if (existing) {
                 store.put({ ...existing, deviceId, name, type, size, started_at, stored_in_db: totalChunks > 0, totalChunks });
             } else {
-                store.put({ fileId, deviceId, name, type, size, started_at,  stored_in_db: totalChunks > 0, totalChunks });
+                store.put({ fileId, deviceId, name, type, size, started_at, stored_in_db: totalChunks > 0, totalChunks });
             }
         };
         tx.oncomplete = () => resolve();
@@ -428,8 +542,8 @@ export async function updateDownload({ fileId, resumed_at, chunks_received}: {
     chunks_received?: number
 }) {
     const db = await openIndexedDB();
-    const tx = db.transaction("downloadMetadata", "readwrite");
-    const store = tx.objectStore("downloadMetadata");
+    const tx = db.transaction("fileDownload", "readwrite");
+    const store = tx.objectStore("fileDownload");
     const index = store.index('downloadIdIndex')
     const request = index.get(fileId)
     return new Promise<void>((resolve, reject) => {
@@ -456,8 +570,8 @@ export async function updateDownload({ fileId, resumed_at, chunks_received}: {
 
 export async function listAllDownloadMetadata(): Promise<DownloadMetadata[]> {
     const db = await openIndexedDB();
-    const tx = db.transaction("downloadMetadata", "readonly");
-    const store = tx.objectStore("downloadMetadata");
+    const tx = db.transaction("fileDownload", "readonly");
+    const store = tx.objectStore("fileDownload");
 
     const result: Array<DownloadMetadata> = [];
 
@@ -481,8 +595,8 @@ export async function listAllDownloadMetadata(): Promise<DownloadMetadata[]> {
 
 export async function listAllDownloadsWithDevice(deviceId: string): Promise<DownloadMetadata[]> {
     const db = await openIndexedDB();
-    const tx = db.transaction("downloadMetadata", "readonly");
-    const store = tx.objectStore("downloadMetadata");
+    const tx = db.transaction("fileDownload", "readonly");
+    const store = tx.objectStore("fileDownload");
     const index = store.index('deviceIdIndex')
     const result: Array<DownloadMetadata> = [];
 
@@ -502,4 +616,170 @@ export async function listAllDownloadsWithDevice(deviceId: string): Promise<Down
         };
         request.onerror = () => reject(request.error);
     });
+}
+
+export async function deleteDownload(fileId: string): Promise<void> {
+    const db = await openIndexedDB();
+    const tx = db.transaction("fileDownload", "readwrite");
+    const store = tx.objectStore("fileDownload");
+    const index = store.index('downloadIdIndex')
+    return new Promise<void>((resolve, reject) => {
+        const req = index.getKey(fileId)
+        req.onsuccess = () => {
+            const key = req.result
+            if (key !== undefined) store.delete(key)
+        }
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+    })
+}
+
+export async function addUploadSession(session: Omit<UploadSession, 'id'>) {
+    const db = await openIndexedDB();
+    const tx = db.transaction('uploadSession', 'readwrite')
+    const store = tx.objectStore('uploadSession')
+    const index = store.index('sessionIdIndex')
+    const req = index.get(session.fileId)
+    return new Promise<void>((resolve, reject) => {
+        req.onsuccess = () => {
+            const existing = req.result
+            if (existing) store.put({ ...existing, ...session })
+            else store.put(session)
+        }
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+    })
+}
+
+export async function patchUploadSession(fileId: string, patch: Partial<UploadSession>) {
+    const db = await openIndexedDB();
+    const tx = db.transaction('uploadSession', 'readwrite')
+    const store = tx.objectStore('uploadSession')
+    const index = store.index('sessionIdIndex')
+    const req = index.get(fileId)
+    return new Promise<void>((resolve, reject) => {
+        let errored = false
+        req.onsuccess = () => {
+            const existing = req.result
+            if (!existing) {
+                errored = true
+                return
+            }
+            store.put({ ...existing, ...patch })
+        }
+        tx.oncomplete = () => {
+            if (errored) return reject(new Error('Session not found'))
+            resolve()
+        }
+        tx.onerror = () => reject(tx.error)
+    })
+}
+
+export async function getUploadSessionByFileId(fileId: string): Promise<UploadSession | null> {
+    const db = await openIndexedDB();
+    const tx = db.transaction('uploadSession', 'readonly')
+    const store = tx.objectStore('uploadSession')
+    const index = store.index('sessionIdIndex')
+    return new Promise((resolve, reject) => {
+        const req = index.get(fileId)
+        req.onsuccess = () => resolve(req.result || null)
+        req.onerror = () => reject(req.error)
+    })
+}
+
+export async function listAllUploadSessions(): Promise<UploadSession[]> {
+    const db = await openIndexedDB();
+    const tx = db.transaction('uploadSession', 'readonly')
+    const store = tx.objectStore('uploadSession')
+    const result: UploadSession[] = []
+    return new Promise((resolve, reject) => {
+        const req = store.openCursor()
+        req.onsuccess = (e: any) => {
+            const cursor = e.target.result
+            if (cursor) {
+                result.push(cursor.value)
+                cursor.continue()
+            } else {
+                resolve(result)
+            }
+        }
+        req.onerror = () => reject(req.error)
+    })
+}
+
+export async function getUploadSession(fileId: string): Promise<UploadSession | null> {
+    const db = await openIndexedDB();
+    const tx = db.transaction('uploadSession', 'readonly')
+    const store = tx.objectStore('uploadSession')
+    const index = store.index('sessionIdIndex')
+    return new Promise((resolve, reject) => {
+        const req = index.get(fileId)
+        req.onsuccess = () => resolve(req.result || null)
+        req.onerror = () => reject(req.error)
+    })
+}
+
+export async function deleteUploadSession(fileId: string): Promise<void> {
+    const db = await openIndexedDB();
+    const tx = db.transaction('uploadSession', 'readwrite')
+    const store = tx.objectStore('uploadSession')
+    const index = store.index('sessionIdIndex')
+    return new Promise<void>((resolve, reject) => {
+        const req = index.getKey(fileId)
+        req.onsuccess = () => {
+            const key = req.result
+            if (key !== undefined) store.delete(key)
+        }
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+    })
+}
+
+export async function patchDownload(fileId: string, patch: Partial<DownloadMetadata>): Promise<void> {
+    const db = await openIndexedDB();
+    const tx = db.transaction('fileDownload', 'readwrite');
+    const store = tx.objectStore('fileDownload');
+    const index = store.index('downloadIdIndex');
+    const request = index.get(fileId);
+    return new Promise<void>((resolve, reject) => {
+        let errored = false
+        request.onsuccess = () => {
+            const existing = request.result;
+            if (!existing) {
+                errored = true
+                return
+            }
+            store.put({ ...existing, ...patch });
+        };
+        tx.oncomplete = () => {
+            if (errored) return reject(new Error('File not found'))
+            resolve();
+        }
+        tx.onerror = () => reject(tx.error);
+    })
+}
+
+export async function clearCompletedDownloads(): Promise<number> {
+    const db = await openIndexedDB();
+    const tx = db.transaction('fileDownload', 'readwrite');
+    const store = tx.objectStore('fileDownload');
+    let removed = 0
+    return new Promise<number>((resolve, reject) => {
+        const cursorRequest = store.openCursor();
+        cursorRequest.onsuccess = (event: any) => {
+            const cursor = event.target.result;
+            if (cursor) {
+                const v = cursor.value as DownloadMetadata
+                const isComplete = typeof v.totalChunks === 'number' && typeof v.chunks_received === 'number' && v.totalChunks > 0 && v.chunks_received >= v.totalChunks
+                if (isComplete || v.cancelled) {
+                    store.delete(cursor.primaryKey)
+                    removed++
+                }
+                cursor.continue();
+            } else {
+                resolve(removed)
+            }
+        }
+        cursorRequest.onerror = () => reject(cursorRequest.error)
+    })
 }

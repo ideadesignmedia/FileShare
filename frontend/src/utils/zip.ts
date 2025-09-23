@@ -1,4 +1,6 @@
-import { ZipWriter } from "@zip.js/zip.js";
+import { ZipWriter, BlobWriter } from "@zip.js/zip.js";
+import type { FileMetadata } from './indexed-db'
+import { createIndexedDBFileByteStream } from './indexed-db'
 
 /**
  * Streams a zip archive containing the given files.
@@ -144,4 +146,45 @@ export function estimateZipSize(files: File[]): number {
     });
 
     return Math.round(estimatedSize);
+}
+
+export function estimateZipSizeFromMetadata(files: Pick<FileMetadata, 'type' | 'size'>[]): number {
+    let estimatedSize = 0;
+    files.forEach(file => {
+        const mimeType = file.type || "default";
+        const fileSize = file.size;
+        const compressionRatio = COMPRESSION_RATIOS[mimeType] || COMPRESSION_RATIOS[mimeType.split("/")[0]] || COMPRESSION_RATIOS["default"];
+        estimatedSize += fileSize * compressionRatio;
+    });
+    return Math.round(estimatedSize);
+}
+
+export function streamSavedFolderToZip(files: Pick<FileMetadata, 'fileId' | 'relativePath'>[]): ReadableStream<Uint8Array> {
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    (async () => {
+        try {
+            const zipWriter = new ZipWriter(writable);
+            for (const f of files) {
+                const stream = await createIndexedDBFileByteStream(f.fileId);
+                const name = f.relativePath || f.fileId;
+                await zipWriter.add(name, stream as any);
+            }
+            await zipWriter.close();
+        } catch (err) {
+            console.error("Error creating zip from saved folder:", err);
+            writable.getWriter().abort(err as any);
+        }
+    })();
+    return readable;
+}
+
+export async function zipSavedFolderToBlob(files: Pick<FileMetadata, 'fileId' | 'relativePath'>[]): Promise<Blob> {
+    const writer = new ZipWriter(new BlobWriter("application/zip"));
+    for (const f of files) {
+        const stream = await createIndexedDBFileByteStream(f.fileId);
+        const name = f.relativePath || f.fileId;
+        await writer.add(name, stream as any);
+    }
+    const blob = await writer.close();
+    return blob as Blob;
 }

@@ -6,6 +6,11 @@ export type PeerMessage = { requestId?: string } & (
   | { type: "webrtc-ice"; data: any }
   | { type: "file-accept"; fileId: string }
   | { type: "file-reject"; fileId: string }
+  | { type: "resume-request"; data: { fileId: string; receivedChunks: number, receivedBytes?: number } }
+  | { type: "resume-status"; data: { fileId: string; receivedChunks: number, receivedBytes: number } }
+  | { type: "resume-offer"; data: { fileId: string } }
+  | { type: "resume-unsupported"; data: { fileId: string } }
+  | { type: "transfer-cancelled"; data: { fileId: string } }
   | {
     type: "file-metadata";
     data: {

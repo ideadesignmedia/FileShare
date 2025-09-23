@@ -1,4 +1,4 @@
-import React, { Suspense, useState } from 'react'
+import React, { Suspense, useEffect, useState } from 'react'
 import { useAppContext } from './context/AppContext'
 import { useSocket } from './context/SocketContext'
 import { P2PProvider } from './context/P2PContext'
@@ -11,13 +11,32 @@ function App() {
   const { state, dispatch, Popup } = useAppContext()
   const { open } = useSocket()
   const [credentials, setCredentials] = useState({ username: '', password: '' })
+  useEffect(() => {
+    if (!state.loaded) {
+      setCredentials({ username: '', password: '' })
+    }
+  }, [state.loaded])
+  useEffect(() => {
+    const b = document.body
+    if (state.loaded) {
+      b.classList.remove('bg-blue-800')
+      b.classList.add('bg-white')
+      b.classList.remove('unauth')
+      b.classList.add('auth')
+    } else {
+      b.classList.remove('bg-white')
+      b.classList.add('bg-blue-800')
+      b.classList.remove('auth')
+      b.classList.add('unauth')
+    }
+  }, [state.loaded])
 
   const content = !state.loaded
     ? (
       (state.loading || state.token)
         ? <WelcomeLoading />
         : (
-          <div className="flex flex-col grow items-center justify-center w-full min-h-full bg-blue-800 px-3 md:px-6 py-6">
+          <div className="flex flex-col grow items-center justify-center w-full px-3 md:px-6 py-6">
             <div className="w-full max-w-3xl mx-auto m-0">
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 shadow">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
@@ -28,17 +47,17 @@ function App() {
                     {state.loginError && (
                       <div className="text-red-600 text-sm mb-2">{state.loginError}</div>
                     )}
-                    <form className="flex flex-col gap-3" onSubmit={e => {
+                    <form className="flex flex-col gap-3" autoComplete="off" onSubmit={e => {
                       e.preventDefault()
                       dispatch({ type: 'set-login-error', value: null })
                       dispatch({ type: 'set-credentials', credentials })
                       setTimeout(() => open(), 100)
                     }}>
                       <label className="text-sm text-slate-700">Username
-                        <input className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" type="text" placeholder="e.g. Alex" value={credentials.username} onChange={e => { if (state.loginError) dispatch({ type: 'set-login-error', value: null }); setCredentials({ ...credentials, username: e.target.value }) }} />
+                        <input className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" type="text" placeholder="e.g. Alex" autoComplete="off" value={credentials.username} onChange={e => { if (state.loginError) dispatch({ type: 'set-login-error', value: null }); setCredentials({ ...credentials, username: e.target.value }) }} />
                       </label>
                       <label className="text-sm text-slate-700">Password
-                        <input className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" type="password" placeholder="Enter a password" value={credentials.password} onChange={e => { if (state.loginError) dispatch({ type: 'set-login-error', value: null }); setCredentials({ ...credentials, password: e.target.value }) }} />
+                        <input className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" type="password" placeholder="Enter a password" autoComplete="new-password" value={credentials.password} onChange={e => { if (state.loginError) dispatch({ type: 'set-login-error', value: null }); setCredentials({ ...credentials, password: e.target.value }) }} />
                       </label>
                       <Button className="w-full uppercase tracking-wider" type="submit" size="lg" variant="primary">Continue</Button>
                     </form>
@@ -74,10 +93,12 @@ function App() {
     )
 
   return (
-    <P2PProvider>
-      {Popup}
-      {content}
-    </P2PProvider>
+    <div className="flex flex-col flex-1 min-h-0 w-full">
+      <P2PProvider>
+        {Popup}
+        {content}
+      </P2PProvider>
+    </div>
   )
 }
 

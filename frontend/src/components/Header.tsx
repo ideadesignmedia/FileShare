@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import device, { deviceTypes } from '../constants/device-browser';
 import icons from './icons';
 import Button from './Button';
 import { useAppContext } from '../context/AppContext';
@@ -7,7 +6,6 @@ import { useAppContext } from '../context/AppContext';
 interface HeaderProps {
 
 }
-const isDesktop = deviceTypes.Desktop === device.deviceType
 const Header: React.FC<HeaderProps> = ({ }) => {
     const { addPopup, files } = useAppContext()
     const headerOptions = useMemo(() => {
@@ -17,7 +15,7 @@ const Header: React.FC<HeaderProps> = ({ }) => {
         </>
     }, [files, addPopup])
     return (
-        <header className="sticky top-0 z-10 w-full bg-gradient-to-r from-blue-700 to-blue-600 text-white shadow">
+        <header className="fixed top-0 left-0 right-0 z-30 w-full bg-gradient-to-r from-blue-700 to-blue-600 text-white shadow">
             <div className="w-full px-3 pt-2 pb-2 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-h-10">
                     <h3 className="text-xl font-bold tracking-tight">FileShare</h3>

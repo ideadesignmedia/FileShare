@@ -126,7 +126,7 @@ interface AppContextProps {
     files: FileMetadata[],
     loadingFiles: boolean,
     reloadFiles: () => void,
-    Popup: JSX.Element | null
+    Popup: React.ReactElement | null
 }
 
 const AppContext = createContext<AppContextProps | undefined>(undefined);

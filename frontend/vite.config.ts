@@ -5,33 +5,45 @@ import { NodeGlobalsPolyfillPlugin } from '@esbuild-plugins/node-globals-polyfil
 
 
 // https://vite.dev/config/
-export default defineConfig({
-  optimizeDeps: {
-    exclude: ['bson'],
-    esbuildOptions: {
-      target: 'esnext', // ensure esbuild uses a modern target
-      define: {
-        global: 'globalThis'
-      },
-      plugins: [
-        NodeGlobalsPolyfillPlugin({
-          buffer: true
-        })
-      ]
-    }
-  },
-  build: {
-    target: 'esnext', // build for modern browsers supporting top-level await,
-    rollupOptions: {
-      output: {
-        entryFileNames: '[name].js',
-        assetFileNames: '[name][extname]'
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve'
+  const base = isDev ? undefined : './'
+  return {
+    optimizeDeps: {
+      exclude: ['bson'],
+      esbuildOptions: {
+        target: 'esnext', // ensure esbuild uses a modern target
+        define: {
+          global: 'globalThis'
+        },
+        plugins: [
+          NodeGlobalsPolyfillPlugin({
+            buffer: true
+          })
+        ]
+      }
+    },
+    build: {
+      target: 'esnext',
+      rollupOptions: {
+        output: {
+          entryFileNames: '[name].js',
+          assetFileNames: '[name][extname]'
+        }
+      }
+    },
+    plugins: [react(), tailwindcss(),],
+    base,
+    server: {
+      host: '127.0.0.1',
+      port: 3020,
+      strictPort: true,
+      allowedHosts: ['wetpear.com', 'localhost', '127.0.0.1'],
+      fs: {
+        strict:true,
+        allow: ['.'],
+        deny: ['.env', '.env.*', '**/.DS_Store']
       }
     }
-  },
-  plugins: [react(), tailwindcss(),],
-  base: './',
-  server: {
-    port: 3020
   }
 })

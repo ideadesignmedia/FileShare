@@ -11,6 +11,7 @@ export default React.memo(function LogOut() {
     <Button
       size="sm"
       variant="danger"
+      className="flex-1 sm:flex-none w-full sm:w-auto"
       onClick={() => {
         removePopup(true)
         send({ type: 'logout' })

@@ -2,11 +2,11 @@ import React, { useContext, createContext, useCallback, useEffect, useRef, useMe
 import { useSocket } from './SocketContext';
 import { emit, emitter, useAppContext } from './AppContext';
 import { chunkSize, largeFileSize, maxBufferAmount, maxMessageSize, numberOfChannels, rtcOptions } from '../constants';
-import { saveChunkToIndexedDB, deleteFileFromIndexedDB, createIndexedDBChunkStream, saveFileMetadata, deleteFileMetadata } from '../utils/indexed-db';
+import { saveChunkToIndexedDB, deleteFileFromIndexedDB, createIndexedDBChunkStream, saveFileMetadata, deleteFileMetadata, addDownload, updateDownload, patchDownload, addUploadSession, patchUploadSession, deleteUploadSession, getUploadSessionByFileId, listAllDownloadMetadata, getDownloadedBytes, createIndexedDBFileByteStream, listAllUploadSessions, deleteDownload } from '../utils/indexed-db';
 import { BSON } from 'bson';
 import { compressSync as brotliCompress, decompressSync as brotliDecompress, Deflate, Inflate } from "fflate";
 import { formatBytes } from '../utils/format';
-import { createEncrypter, createEncrypterCTR, createDecrypterCTR, createDecrypter } from '../utils/encryption';
+import { createEncrypter, createEncrypterCTR, createDecrypterCTR, createDecrypter, createEncryptionStreamCTR } from '../utils/encryption';
 import { deviceId as myDeviceId } from '../constants'
 import device from '../constants/device-browser';
 import { Buffer } from 'buffer';
@@ -20,21 +20,28 @@ export type P2PContextType = {
     sendFile: (deviceId: string, file: File, fileId: string) => void;
     createPeerConnection: (deviceId: string, isInitiator: boolean) => RTCPeerConnection | undefined;
     disconnectPeerConnection: (deviceId: string) => void;
-    requestFileTransfer: (deviceId: string, file: File | ReadableStream, fileInfo?: { type: string, name: string, size: number }) => Promise<() => void>;
+    requestFileTransfer: (deviceId: string, file: File | ReadableStream, fileInfo?: { type: string, name: string, size: number, savedFileId?: string }) => Promise<() => void>;
     pauseTransfer: (deviceId: string, fileId: string) => void;
     resumeTransfer: (deviceId: string, fileId: string) => void;
     cancelTransfer: (deviceId: string, fileId: string) => void;
     cancelUpload: (deviceId: string, fileId: string) => void;
     connectedPeers: string[],
     availablePeers: string[],
-    receivedFileProgress: { [deviceId: string]: { [fileId: string]: { progress: number, name: string } } };
-    sentFileProgress: { [deviceId: string]: { [fileId: string]: { progress: number, name: string } } };
+    receivedFileProgress: { [deviceId: string]: { [fileId: string]: { progress: number, name: string, status?: string } } };
+    sentFileProgress: { [deviceId: string]: { [fileId: string]: { progress: number, name: string, status?: string } } };
     selectedPeer: string
     setSelectedPeer: React.Dispatch<React.SetStateAction<string>>
     setAutoAcceptFiles: React.Dispatch<React.SetStateAction<boolean>>
     setAutoDownloadFiles: React.Dispatch<React.SetStateAction<boolean>>
     autoAcceptFiles: boolean,
     autoDownloadFiles: boolean
+    autoResume?: boolean
+    setAutoResume?: React.Dispatch<React.SetStateAction<boolean>>
+    resumeNeeds: { [deviceId: string]: { [fileId: string]: { name: string, type: string, size: number, receivedChunks: number } } }
+    provideResumeFile: (deviceId: string, fileId: string, file: File) => void
+    cancelResumeNeed: (deviceId: string, fileId: string) => void
+    requestResume: (deviceId: string, fileId: string) => void
+    approveResume: (deviceId: string, fileId: string) => void
 };
 
 const P2PContext = createContext<P2PContextType | undefined>(undefined);
@@ -63,13 +70,40 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         }
     }>({});
     const messageTimeouts = useRef<{ [requestId: string]: any }>({});
+    const uploadSessions = useRef<{ [deviceId: string]: { [fileId: string]: { file?: File, name: string, type: string, size: number, small: boolean, key?: Uint8Array, iv?: Uint8Array, password?: string } } }>({});
+    const resumeRequested = useRef<{ [deviceId: string]: Set<string> }>({});
+    const pendingOffers = useRef<{ [deviceId: string]: Set<string> }>({});
+    const [resumeNeeds, setResumeNeeds] = React.useState<{ [deviceId: string]: { [fileId: string]: { name: string, type: string, size: number, receivedChunks: number } } }>({});
     const [rtcPeers, setRtcPeers] = React.useState<{ [deviceId: string]: boolean }>({});
+    const [autoResume, setAutoResume] = React.useState<boolean>(Boolean(localStorage.getItem('auto-resume')))
     const [receivedFileProgress, setReceivedFileProgress] = React.useState<{
-        [deviceId: string]: { [fileId: string]: { progress: number, name: string } }
+        [deviceId: string]: { [fileId: string]: { progress: number, name: string, status?: string } }
     }>({});
     const [sentFileProgress, setSentFileProgress] = React.useState<{
-        [deviceId: string]: { [fileId: string]: { progress: number, name: string } }
+        [deviceId: string]: { [fileId: string]: { progress: number, name: string, status?: string } }
     }>({});
+    const downloadSpeed = useRef<{ [deviceId: string]: { [fileId: string]: { lastBytes: number, lastTs: number } } }>({});
+    const uploadSpeed = useRef<{ [deviceId: string]: { [fileId: string]: { lastBytes: number, lastTs: number } } }>({});
+    const requestResume = useCallback((deviceId: string, fileId: string) => {
+        Promise.all([
+            listAllDownloadMetadata().catch(() => []),
+            getDownloadedBytes(fileId).catch(() => 0)
+        ]).then(([list, bytes]) => {
+            const rec = (list as any[]).find((d: any) => d.fileId === fileId && d.deviceId === deviceId)
+            const receivedChunks = rec?.chunks_received || 0
+            sendMessage(deviceId, { type: 'resume-request', data: { fileId, receivedChunks, receivedBytes: bytes } })
+            setReceivedFileProgress(prev => ({
+                ...prev,
+                [deviceId]: {
+                    ...(prev[deviceId] || {}),
+                    [fileId]: {
+                        ...(prev[deviceId]?.[fileId] || { name: rec?.name || fileId, progress: 0 }),
+                        status: 'waiting-for-sender'
+                    }
+                }
+            }))
+        })
+    }, [])
     useEffect(() => {
         if (autoAcceptFiles) {
             localStorage.setItem('auto-accept', 'true')
@@ -84,6 +118,42 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             localStorage.removeItem('auto-download')
         }
     }, [autoDownloadFiles])
+    useEffect(() => {
+        if (autoResume) localStorage.setItem('auto-resume', 'true')
+        else localStorage.removeItem('auto-resume')
+    }, [autoResume])
+
+    useEffect(() => {
+        const setStatus = (fileId: string, status: string) => {
+            setReceivedFileProgress(prev => {
+                const next = { ...prev } as typeof prev;
+                let changed = false;
+                for (const devId of Object.keys(next)) {
+                    const deviceFiles = next[devId];
+                    if (deviceFiles && deviceFiles[fileId]) {
+                        deviceFiles[fileId] = {
+                            ...deviceFiles[fileId],
+                            progress: status === 'completed' ? 100 : deviceFiles[fileId].progress,
+                            status
+                        };
+                        changed = true;
+                    }
+                }
+                return changed ? next : prev;
+            });
+        };
+        const onComplete = (fileId: string) => setStatus(fileId, 'completed');
+        const onCancelled = (fileId: string) => setStatus(fileId, 'cancelled');
+        const onSaved = (fileId: string) => setStatus(fileId, 'completed');
+        emitter.on('download-complete', onComplete);
+        emitter.on('download-cancelled', onCancelled);
+        emitter.on('file-saved', onSaved);
+        return () => {
+            emitter.off('download-complete', onComplete);
+            emitter.off('download-cancelled', onCancelled);
+            emitter.off('file-saved', onSaved);
+        };
+    }, [])
     const sendMessage = (deviceId: string, payload: PeerMessage, requestId?: string, timeout = 5000): Promise<PeerMessage | null> => {
         const transmit = () => {
             send(
@@ -205,7 +275,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         }
     }, []);
 
-    const requestFileTransfer = useCallback((deviceId: string, file: File | ReadableStream, fileInfo?: { name: string, type: string, size: number }) => {
+    const requestFileTransfer = useCallback((deviceId: string, file: File | ReadableStream, fileInfo?: { name: string, type: string, size: number, savedFileId?: string }) => {
         const fileId = crypto.randomUUID();
         const isFile = checkIfFile(file) && !(file instanceof ReadableStream)
         if (!isFile) {
@@ -246,10 +316,15 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
 
     const cancelTransfer = useCallback((deviceId: string, fileId: string) => {
         messageDataChannel(deviceId, { type: "file-cancel", fileId });
+        sendMessage(deviceId, { type: 'transfer-cancelled', data: { fileId } })
         delete receivedChunks.current[deviceId]?.[fileId];
         delete receivedFiles.current[deviceId]?.[fileId];
         delete receivedFilePromises.current[deviceId]?.[fileId];
         delete pausedTransfers.current[deviceId]?.[fileId];
+        if (downloadSpeed.current[deviceId]?.[fileId]) {
+            delete downloadSpeed.current[deviceId][fileId]
+            if (Object.keys(downloadSpeed.current[deviceId]).length === 0) delete downloadSpeed.current[deviceId]
+        }
         setReceivedFileProgress(prev => {
             if (!prev[deviceId]) return prev;
             if (!prev[deviceId][fileId]) return prev;
@@ -264,31 +339,51 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
 
             return { ...prev, [deviceId]: updatedDevice };
         });
-    }, []);
-
-    const cancelUpload = useCallback((deviceId: string, fileId: string) => {
-        messageDataChannel(deviceId, { type: "cancel-upload", fileId });
-        delete currentTransfers.current[deviceId]?.[fileId];
         setSentFileProgress(prev => {
             if (!prev[deviceId]) return prev;
             if (!prev[deviceId][fileId]) return prev;
             const updatedDevice = { ...prev[deviceId] };
             delete updatedDevice[fileId];
-
             if (Object.keys(updatedDevice).length === 0) {
-                const updatedProgress = { ...prev };
+                const updatedProgress = { ...prev } as typeof prev;
                 delete updatedProgress[deviceId];
                 return updatedProgress;
             }
-
             return { ...prev, [deviceId]: updatedDevice };
-        });
+        })
+        patchDownload(fileId, { cancelled: true }).then(() => {
+            emit('download-cancelled', fileId)
+        }).catch(() => {})
+        Promise.allSettled([
+            deleteFileFromIndexedDB(fileId),
+            deleteFileMetadata(fileId)
+        ]).then(() => {
+            emit('file-deleted', fileId)
+        }).catch(() => {})
+    }, []);
+
+    const cancelUpload = useCallback((deviceId: string, fileId: string) => {
+        messageDataChannel(deviceId, { type: "cancel-upload", fileId });
+        delete currentTransfers.current[deviceId]?.[fileId];
+        setSentFileProgress(prev => ({
+            ...prev,
+            [deviceId]: {
+                ...(prev[deviceId] || {}),
+                [fileId]: {
+                    name: prev[deviceId]?.[fileId]?.name || '',
+                    progress: prev[deviceId]?.[fileId]?.progress || 0,
+                    status: 'cancelled'
+                }
+            }
+        }));
+        deleteUploadSession(fileId).catch(() => { })
     }, [])
 
     const sendFile = useCallback((deviceId: string, file: File | ReadableStream, fileId: string, fileInfo?: {
         name: string,
         type: string,
-        size: number
+        size: number,
+        savedFileId?: string
     }) => {
         return new Promise<null>(async (resolve, reject) => {
             const channels = dataChannels.current[deviceId];
@@ -307,12 +402,23 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             const isSmallFile = isFile && size < largeFileSize;
             const password = requestedPeers.current.has(deviceId) ? myDeviceId : deviceId
             const { key, iv, encrypt } = isSmallFile ? await createEncrypter(password) : await createEncrypterCTR(password)
+            uploadSessions.current[deviceId] = uploadSessions.current[deviceId] || {}
+            uploadSessions.current[deviceId][fileId] = { file: isFile ? (file as File) : undefined, name, type, size, small: isSmallFile, key, iv, password } as any
+            if (fileInfo?.savedFileId) (uploadSessions.current[deviceId][fileId] as any).savedFileId = fileInfo.savedFileId
+            addUploadSession({ fileId, deviceId, name, type, size, small: isSmallFile, started_at: Date.now(), resumeSupported: Boolean(!isSmallFile && (!isFile || Boolean(fileInfo?.savedFileId))), password, key: Array.from(key), iv: Array.from(iv), savedFileId: fileInfo?.savedFileId }).catch(() => { })
             let sentBytes = 0;
             let sentChunks = 0
 
             if (!nextChannelIndex.current[deviceId]) {
                 nextChannelIndex.current[deviceId] = 0;
             }
+            setSentFileProgress(prev => ({
+                ...prev,
+                [deviceId]: {
+                    ...(prev[deviceId] || {}),
+                    [fileId]: { name, progress: 0, status: 'uploading' }
+                }
+            }))
             const updateProgress = () => {
                 if (sentChunks % 5 === 0) setSentFileProgress(prev => ({
                     ...prev,
@@ -320,18 +426,34 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         ...(prev[deviceId] || {}),
                         [fileId]: {
                             name,
-                            progress: parseFloat(Math.min(100, (sentBytes / size) * 100).toFixed(2))
+                            progress: parseFloat(Math.min(100, (sentBytes / size) * 100).toFixed(2)),
+                            status: prev[deviceId]?.[fileId]?.status || 'uploading'
                         }
                     }
                 }));
             };
 
-            const sendChunk = async (channel: RTCDataChannel, chunk: Uint8Array, chunkNumber: number, chunkPart: number, totalParts: number) => {
-                while (channel.bufferedAmount > maxBufferAmount) {
+            const getOpenChannel = (): RTCDataChannel | null => {
+                const list = dataChannels.current[deviceId] || [];
+                for (let i = 0; i < list.length; i++) {
+                    const ch = list[i];
+                    if (ch && ch.readyState === 'open') return ch;
+                }
+                return null;
+            };
+            const sendChunk = async (channel: RTCDataChannel | undefined, chunk: Uint8Array, chunkNumber: number, chunkPart: number, totalParts: number) => {
+                let ch: RTCDataChannel | null = (channel && channel.readyState === 'open') ? channel : getOpenChannel();
+                if (!ch) throw new Error('No open data channels');
+                while (ch.bufferedAmount > maxBufferAmount) {
                     await new Promise(res => setTimeout(res, 50));
+                    if (ch.readyState !== 'open') {
+                        ch = getOpenChannel();
+                        if (!ch) throw new Error('No open data channels');
+                    }
                 }
                 const encodedChunk = BSON.serialize({ type: "file-chunk", fileId, data: chunk, chunkNumber, chunkPart: Math.max(1, chunkPart), totalParts: Math.max(1, totalParts) });
-                channel.send(encodedChunk);
+                const view = new Uint8Array(encodedChunk.buffer as ArrayBuffer, encodedChunk.byteOffset, encodedChunk.byteLength);
+                ch.send(view);
             };
 
             const getNextChannel = (): RTCDataChannel => {
@@ -357,6 +479,15 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         await sendChunk(channel, chunk, sentChunks, 1, 1);
                         sentBytes += chunk.byteLength;
                         updateProgress();
+                        const now = Date.now();
+                        if (!uploadSpeed.current[deviceId]) uploadSpeed.current[deviceId] = {};
+                        const last = uploadSpeed.current[deviceId][fileId];
+                        if (last) {
+                            const dt = (now - last.lastTs) / 1000;
+                            const db = Math.max(0, sentBytes - last.lastBytes);
+                            if (dt > 0 && db >= 0) emitter.emit('upload-speed', { fileId, bps: db / dt });
+                        }
+                        uploadSpeed.current[deviceId][fileId] = { lastBytes: sentBytes, lastTs: now };
                     }
                     messageDataChannel(deviceId, { type: "file-end", fileId, totalChunks: sentChunks });
                     setSentFileProgress(prev => ({
@@ -365,7 +496,8 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                             ...(prev[deviceId] || {}),
                             [fileId]: {
                                 name,
-                                progress: 100
+                                progress: 100,
+                                status: 'completed'
                             }
                         }
                     }))
@@ -375,7 +507,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 }
             };
 
-            const sendLargeFile = async () => {
+            const sendLargeFile = async (resumeFrom = 0) => {
                 try {
                     messageDataChannel(deviceId, {
                         type: "file-metadata",
@@ -383,47 +515,164 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         data: { name, type, size, key: Array.from(key), iv: Array.from(iv), small: false }
                     });
 
-                    const compressor = new Deflate();
-                    const transformStream = new TransformStream({
-                        start(controller) {
-                            compressor.ondata = (chunk, final) => {
-                                controller.enqueue(chunk);
-                                if (final) controller.terminate();
-                            };
-                        },
-                        transform(chunk) {
-                            compressor.push(new Uint8Array(chunk));
-                        },
-                        flush() {
-                            compressor.push(new Uint8Array(), true);
+                    const sourceStream = (checkIfFile(file) && !(file instanceof ReadableStream) ? (file as File).stream() : (file as ReadableStream));
+                    const savedStream = !checkIfFile(file) && !!(fileInfo && (fileInfo as any).savedFileId);
+                    const hasPipeThrough = !savedStream && typeof (sourceStream as any).pipeThrough === 'function' && typeof (globalThis as any).TransformStream !== 'undefined';
+                    let reader: ReadableStreamDefaultReader<Uint8Array>;
+                    let readNext: null | (() => Promise<{ done: boolean, value?: any }>) = null;
+                    let manualCompress = false;
+                    let compressor: Deflate | null = null;
+                    let outQueue: Uint8Array[] = [];
+                    if (hasPipeThrough && isFile) {
+                        try {
+                            const c = new Deflate();
+                            const transformStream = new TransformStream<Uint8Array, Uint8Array>({
+                                start(controller) {
+                                    c.ondata = (chunk, final) => {
+                                        controller.enqueue(chunk);
+                                        if (final) controller.terminate();
+                                    };
+                                },
+                                transform(chunk) {
+                                    c.push(new Uint8Array(chunk));
+                                },
+                                flush() {
+                                    c.push(new Uint8Array(), true);
+                                }
+                            });
+                            reader = (sourceStream as any).pipeThrough(transformStream as any).getReader();
+                            readNext = () => reader.read();
+                        } catch {
+                            manualCompress = true;
+                            compressor = new Deflate();
+                            compressor.ondata = (chunk) => { outQueue.push(chunk) };
+                            if (typeof (sourceStream as any).getReader === 'function') {
+                                reader = (sourceStream as ReadableStream).getReader();
+                                readNext = () => reader.read();
+                            } else if (sourceStream && typeof (sourceStream as any)[Symbol.asyncIterator] === 'function') {
+                                const iterator = (sourceStream as any)[Symbol.asyncIterator]();
+                                readNext = () => iterator.next();
+                            } else {
+                                throw new Error('Unsupported source stream for large file transfer');
+                            }
                         }
-                    });
-
-                    const reader = (checkIfFile(file) && !(file instanceof ReadableStream) ? file.stream() : file as ReadableStream).pipeThrough(transformStream).getReader();
+                    } else {
+                        manualCompress = true;
+                        compressor = new Deflate();
+                        compressor.ondata = (chunk) => { outQueue.push(chunk) };
+                        if (typeof (sourceStream as any).getReader === 'function') {
+                            reader = (sourceStream as ReadableStream).getReader();
+                            readNext = () => reader.read();
+                        } else if (sourceStream && typeof (sourceStream as any)[Symbol.asyncIterator] === 'function') {
+                            const iterator = (sourceStream as any)[Symbol.asyncIterator]();
+                            readNext = () => iterator.next();
+                        } else {
+                            throw new Error('Unsupported source stream for large file transfer');
+                        }
+                    }
 
                     const processStream = async () => {
+                        let skipUntil = Math.max(0, resumeFrom)
                         while (true) {
-                            const { done, value } = await reader.read();
+                            const { done, value } = await (readNext as () => Promise<{ done: boolean, value?: any }>)();
                             if (done) break;
-                            sentChunks += 1
-                            const encryptedChunk = await encrypt(value, sentChunks)
-                            const chunkParts = Math.ceil(encryptedChunk.byteLength / maxMessageSize)
-                            let chunkPart = 0
-                            for (let i = 0; i < encryptedChunk.byteLength; i += maxMessageSize) {
-                                const chunk = encryptedChunk.slice(i, i + maxMessageSize);
-                                const channel = getNextChannel();
-                                chunkPart += 1;
-                                await sendChunk(channel, chunk, sentChunks, chunkPart, chunkParts);
-                                sentBytes += chunk.byteLength;
-                                updateProgress();
-                                if (currentTransfers.current[deviceId]?.[fileId] === 'paused') {
-                                    while (currentTransfers.current[deviceId]?.[fileId] === 'paused') {
-                                        await new Promise(res => setTimeout(res, 200));
+                            if (!manualCompress) {
+                                sentChunks += 1
+                                const encryptedChunk = await encrypt(value!, sentChunks)
+                                const chunkParts = Math.ceil(encryptedChunk.byteLength / maxMessageSize)
+                                let chunkPart = 0
+                                if (skipUntil && sentChunks <= skipUntil) {
+                                    continue
+                                }
+                                for (let i = 0; i < encryptedChunk.byteLength; i += maxMessageSize) {
+                                    const chunk = encryptedChunk.slice(i, i + maxMessageSize);
+                                    const channel = getNextChannel();
+                                    chunkPart += 1;
+                                    await sendChunk(channel, chunk, sentChunks, chunkPart, chunkParts);
+                                    sentBytes += chunk.byteLength;
+                                    updateProgress();
+                                    const now = Date.now();
+                                    if (!uploadSpeed.current[deviceId]) uploadSpeed.current[deviceId] = {};
+                                    const last = uploadSpeed.current[deviceId][fileId];
+                                    if (last) {
+                                        const dt = (now - last.lastTs) / 1000;
+                                        const db = Math.max(0, sentBytes - last.lastBytes);
+                                        if (dt > 0 && db >= 0) emitter.emit('upload-speed', { fileId, bps: db / dt });
+                                    }
+                                    uploadSpeed.current[deviceId][fileId] = { lastBytes: sentBytes, lastTs: now };
+                                    if (sentChunks % 10 === 0) patchUploadSession(fileId, { sentChunks }).catch(() => { })
+                                    if (currentTransfers.current[deviceId]?.[fileId] === 'paused') {
+                                        while (currentTransfers.current[deviceId]?.[fileId] === 'paused') {
+                                            await new Promise(res => setTimeout(res, 200));
+                                        }
+                                    }
+                                    if (currentTransfers.current[deviceId]?.[fileId] === 'cancelled') {
+                                        return reject(new Error("File transfer cancelled"));
                                     }
                                 }
-                                if (currentTransfers.current[deviceId]?.[fileId] === 'cancelled') {
-                                    return reject(new Error("File transfer cancelled"));
-
+                            } else {
+                                let input: Uint8Array;
+                                if (value instanceof Uint8Array) {
+                                    input = value;
+                                } else if (value && typeof value === 'object' && 'chunkData' in (value as any)) {
+                                    input = (value as any).chunkData as Uint8Array;
+                                } else if (value instanceof ArrayBuffer) {
+                                    input = new Uint8Array(value);
+                                } else {
+                                    input = new Uint8Array(value as any);
+                                }
+                                compressor!.push(input);
+                                while (outQueue.length) {
+                                    const out = outQueue.shift() as Uint8Array
+                                    sentChunks += 1
+                                    if (skipUntil && sentChunks <= skipUntil) continue
+                                    const encryptedChunk = await encrypt(out, sentChunks)
+                                    const chunkParts = Math.ceil(encryptedChunk.byteLength / maxMessageSize)
+                                    let chunkPart = 0
+                                    for (let i = 0; i < encryptedChunk.byteLength; i += maxMessageSize) {
+                                        const chunk = encryptedChunk.slice(i, i + maxMessageSize);
+                                        const channel = getNextChannel();
+                                        chunkPart += 1;
+                                        await sendChunk(channel, chunk, sentChunks, chunkPart, chunkParts);
+                                        sentBytes += chunk.byteLength;
+                                        updateProgress();
+                                        const now = Date.now();
+                                        if (!uploadSpeed.current[deviceId]) uploadSpeed.current[deviceId] = {};
+                                        const last = uploadSpeed.current[deviceId][fileId];
+                                        if (last) {
+                                            const dt = (now - last.lastTs) / 1000;
+                                            const db = Math.max(0, sentBytes - last.lastBytes);
+                                            if (dt > 0 && db >= 0) emitter.emit('upload-speed', { fileId, bps: db / dt });
+                                        }
+                                        uploadSpeed.current[deviceId][fileId] = { lastBytes: sentBytes, lastTs: now };
+                                        if (sentChunks % 10 === 0) patchUploadSession(fileId, { sentChunks }).catch(() => { })
+                                        if (currentTransfers.current[deviceId]?.[fileId] === 'paused') {
+                                            while (currentTransfers.current[deviceId]?.[fileId] === 'paused') {
+                                                await new Promise(res => setTimeout(res, 200));
+                                            }
+                                        }
+                                        if (currentTransfers.current[deviceId]?.[fileId] === 'cancelled') {
+                                            return reject(new Error("File transfer cancelled"));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (manualCompress) {
+                            compressor!.push(new Uint8Array(), true)
+                            while (outQueue.length) {
+                                const out = outQueue.shift() as Uint8Array
+                                sentChunks += 1
+                                const encryptedChunk = await encrypt(out, sentChunks)
+                                const chunkParts = Math.ceil(encryptedChunk.byteLength / maxMessageSize)
+                                let chunkPart = 0
+                                for (let i = 0; i < encryptedChunk.byteLength; i += maxMessageSize) {
+                                    const chunk = encryptedChunk.slice(i, i + maxMessageSize);
+                                    const channel = getNextChannel();
+                                    chunkPart += 1;
+                                    await sendChunk(channel, chunk, sentChunks, chunkPart, chunkParts);
+                                    sentBytes += chunk.byteLength;
+                                    updateProgress();
                                 }
                             }
                         }
@@ -434,10 +683,13 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                 ...(prev[deviceId] || {}),
                                 [fileId]: {
                                     name,
-                                    progress: 100
+                                    progress: 100,
+                                    status: 'completed'
                                 }
                             }
                         }))
+                        patchUploadSession(fileId, { sentChunks }).catch(() => { })
+                        deleteUploadSession(fileId).catch(() => { })
                         resolve(null);
                     };
 
@@ -460,6 +712,302 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         });
     }, [messageDataChannel]);
 
+    const resumeUploadLargeFile = useCallback(async (deviceId: string, fileId: string, receivedChunks: number) => {
+        let session = uploadSessions.current[deviceId]?.[fileId] as any
+        if (!session) {
+            try {
+                const s = await getUploadSessionByFileId(fileId)
+                if (s && s.deviceId === deviceId && !s.small) {
+                    session = {
+                        name: s.name, type: s.type, size: s.size, small: s.small,
+                        key: new Uint8Array(s.key || []), iv: new Uint8Array(s.iv || []), password: s.password,
+                        savedFileId: s.savedFileId
+                    }
+                }
+            } catch {}
+        }
+        if (!session || session.small || !session.key || !session.iv || !session.password) {
+            sendMessage(deviceId, { type: 'resume-unsupported', data: { fileId } })
+            return
+        }
+        if (!session.file && !session.savedFileId) {
+            setResumeNeeds(prev => ({
+                ...prev,
+                [deviceId]: {
+                    ...(prev[deviceId] || {}),
+                    [fileId]: { name: session.name, type: session.type, size: session.size, receivedChunks }
+                }
+            }))
+            return
+        }
+        const channels = dataChannels.current[deviceId];
+        if (!channels || channels.length === 0) return
+        if (!nextChannelIndex.current[deviceId]) nextChannelIndex.current[deviceId] = 0;
+        const getNextChannel = (): RTCDataChannel => {
+            const channel = channels[nextChannelIndex.current[deviceId] % channels.length];
+            nextChannelIndex.current[deviceId]++;
+            return channel;
+        };
+        const getOpenChannel = (): RTCDataChannel | null => {
+            const list = dataChannels.current[deviceId] || [];
+            for (let i = 0; i < list.length; i++) {
+                const ch = list[i];
+                if (ch && ch.readyState === 'open') return ch;
+            }
+            return null;
+        };
+        const sendChunk = async (channel: RTCDataChannel | undefined, chunk: Uint8Array, chunkNumber: number, chunkPart: number, totalParts: number) => {
+            let ch: RTCDataChannel | null = (channel && channel.readyState === 'open') ? channel : getOpenChannel();
+            if (!ch) throw new Error('No open data channels');
+            while (ch.bufferedAmount > maxBufferAmount) {
+                await new Promise(res => setTimeout(res, 50));
+                if (ch.readyState !== 'open') {
+                    ch = getOpenChannel();
+                    if (!ch) throw new Error('No open data channels');
+                }
+            }
+            const encodedChunk = BSON.serialize({ type: "file-chunk", fileId, data: chunk, chunkNumber, chunkPart: Math.max(1, chunkPart), totalParts: Math.max(1, totalParts) });
+            const view = new Uint8Array(encodedChunk.buffer as ArrayBuffer, encodedChunk.byteOffset, encodedChunk.byteLength);
+            ch.send(view);
+        };
+        const fileStream: ReadableStream<Uint8Array> = session.file ? (session.file as File).stream() : await createIndexedDBFileByteStream(session.savedFileId)
+        const canPipe = typeof (fileStream as any).pipeThrough === 'function' && typeof (globalThis as any).TransformStream !== 'undefined';
+        let reader: ReadableStreamDefaultReader<Uint8Array>;
+        let manualCompress = false;
+        let outQueue: Uint8Array[] = [];
+        let compressor: Deflate | null = null;
+        if (canPipe) {
+            try {
+                const c = new Deflate();
+                const transformStream = new TransformStream({
+                    start(controller) {
+                        c.ondata = (chunk, final) => {
+                            controller.enqueue(chunk);
+                            if (final) controller.terminate();
+                        };
+                    },
+                    transform(chunk) {
+                        c.push(new Uint8Array(chunk));
+                    },
+                    flush() {
+                        c.push(new Uint8Array(), true);
+                    }
+                });
+                reader = (fileStream as any).pipeThrough(transformStream as any).getReader();
+            } catch {
+                manualCompress = true;
+                compressor = new Deflate();
+                compressor.ondata = (chunk) => { outQueue.push(chunk) };
+                reader = (fileStream as ReadableStream).getReader();
+            }
+        } else {
+            manualCompress = true;
+            compressor = new Deflate();
+            compressor.ondata = (chunk) => { outQueue.push(chunk) };
+            reader = (fileStream as ReadableStream).getReader();
+        }
+        const { password, key, iv } = session
+        const encrypt = await createEncryptionStreamCTR(password as string, key as Uint8Array, iv as Uint8Array)
+        let sentChunks = 0
+        let sentBytes = 0
+        let baselineBytes = 0
+        if (typeof (globalThis as any).performance !== 'undefined') {
+            try {
+                const list = await listAllDownloadMetadata().catch(() => [])
+                const rec = (list as any[]).find((d: any) => d.fileId === fileId && d.deviceId === deviceId)
+                const rbytes = (rec && rec.size) ? await getDownloadedBytes(fileId).catch(() => 0) : 0
+                baselineBytes = rbytes
+                if (rec && rec.size) setSentFileProgress(prev => ({
+                    ...prev,
+                    [deviceId]: {
+                        ...(prev[deviceId] || {}),
+                        [fileId]: {
+                            name: session.name,
+                            progress: rec.size > 0 ? Math.min(100, Math.round((rbytes / rec.size) * 100)) : 0,
+                            status: 'resuming'
+                        }
+                    }
+                }))
+            } catch { }
+        }
+        messageDataChannel(deviceId, { type: 'file-metadata', fileId, data: { name: session.name, type: session.type, size: session.size, key: Array.from(key), iv: Array.from(iv), small: false } })
+        const processStream = async () => {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (!manualCompress) {
+                    sentChunks += 1
+                    const encryptedChunk = await encrypt(value, sentChunks)
+                    if (sentChunks <= receivedChunks) continue
+                    const chunkParts = Math.ceil(encryptedChunk.byteLength / maxMessageSize)
+                    let chunkPart = 0
+                    for (let i = 0; i < encryptedChunk.byteLength; i += maxMessageSize) {
+                        const chunk = encryptedChunk.slice(i, i + maxMessageSize);
+                        const channel = getNextChannel();
+                        chunkPart += 1;
+                        await sendChunk(channel, chunk, sentChunks, chunkPart, chunkParts);
+                        sentBytes += chunk.byteLength;
+                        setSentFileProgress(prev => ({
+                            ...prev,
+                            [deviceId]: {
+                                ...(prev[deviceId] || {}),
+                                [fileId]: {
+                                    name: session.name,
+                                    progress: session.size > 0 ? Math.min(100, Math.round(((baselineBytes + sentBytes) / session.size) * 100)) : 0,
+                                    status: 'resuming'
+                                }
+                            }
+                        }))
+                        const now = Date.now();
+                        if (!uploadSpeed.current[deviceId]) uploadSpeed.current[deviceId] = {};
+                        const last = uploadSpeed.current[deviceId][fileId];
+                        if (last) {
+                            const dt = (now - last.lastTs) / 1000;
+                            const db = Math.max(0, sentBytes - last.lastBytes);
+                            if (dt > 0 && db >= 0) emitter.emit('upload-speed', { fileId, bps: db / dt });
+                        }
+                        uploadSpeed.current[deviceId][fileId] = { lastBytes: sentBytes, lastTs: now };
+                    }
+                } else {
+                    (compressor as Deflate).push(new Uint8Array(value));
+                    while (outQueue.length) {
+                        const out = outQueue.shift() as Uint8Array
+                        sentChunks += 1
+                        if (sentChunks <= receivedChunks) continue
+                        const encryptedChunk = await encrypt(out, sentChunks)
+                        const chunkParts = Math.ceil(encryptedChunk.byteLength / maxMessageSize)
+                        let chunkPart = 0
+                        for (let i = 0; i < encryptedChunk.byteLength; i += maxMessageSize) {
+                            const chunk = encryptedChunk.slice(i, i + maxMessageSize);
+                            const channel = getNextChannel();
+                            chunkPart += 1;
+                            await sendChunk(channel, chunk, sentChunks, chunkPart, chunkParts);
+                            sentBytes += chunk.byteLength;
+                            setSentFileProgress(prev => ({
+                                ...prev,
+                                [deviceId]: {
+                                    ...(prev[deviceId] || {}),
+                                    [fileId]: {
+                                        name: session.name,
+                                        progress: session.size > 0 ? Math.min(100, Math.round(((baselineBytes + sentBytes) / session.size) * 100)) : 0,
+                                        status: 'resuming'
+                                    }
+                                }
+                            }))
+                            const now = Date.now();
+                            if (!uploadSpeed.current[deviceId]) uploadSpeed.current[deviceId] = {};
+                            const last = uploadSpeed.current[deviceId][fileId];
+                            if (last) {
+                                const dt = (now - last.lastTs) / 1000;
+                                const db = Math.max(0, sentBytes - last.lastBytes);
+                                if (dt > 0 && db >= 0) emitter.emit('upload-speed', { fileId, bps: db / dt });
+                            }
+                            uploadSpeed.current[deviceId][fileId] = { lastBytes: sentBytes, lastTs: now };
+                        }
+                    }
+                }
+            }
+            if (manualCompress) {
+                (compressor as Deflate).push(new Uint8Array(), true)
+                while (outQueue.length) {
+                    const out = outQueue.shift() as Uint8Array
+                    sentChunks += 1
+                    if (sentChunks <= receivedChunks) continue
+                    const encryptedChunk = await encrypt(out, sentChunks)
+                    const chunkParts = Math.ceil(encryptedChunk.byteLength / maxMessageSize)
+                    let chunkPart = 0
+                    for (let i = 0; i < encryptedChunk.byteLength; i += maxMessageSize) {
+                        const chunk = encryptedChunk.slice(i, i + maxMessageSize);
+                        const channel = getNextChannel();
+                        chunkPart += 1;
+                        await sendChunk(channel, chunk, sentChunks, chunkPart, chunkParts);
+                        sentBytes += chunk.byteLength;
+                    }
+                }
+            }
+            messageDataChannel(deviceId, { type: "file-end", fileId, totalChunks: sentChunks });
+            setSentFileProgress(prev => ({
+                ...prev,
+                [deviceId]: {
+                    ...(prev[deviceId] || {}),
+                    [fileId]: { name: session.name, progress: 100, status: 'completed' }
+                }
+            }))
+            deleteUploadSession(fileId).catch(() => {})
+        };
+        processStream().catch(() => { })
+    }, [createEncrypterCTR, messageDataChannel])
+
+    const provideResumeFile = useCallback((deviceId: string, fileId: string, file: File) => {
+        if (!uploadSessions.current[deviceId]) uploadSessions.current[deviceId] = {}
+        const existing = uploadSessions.current[deviceId][fileId]
+        if (!existing) return
+        uploadSessions.current[deviceId][fileId] = { ...existing, file }
+        const rc = resumeNeeds[deviceId]?.[fileId]?.receivedChunks || 0
+        setResumeNeeds(prev => {
+            const next = { ...prev }
+            if (next[deviceId]) {
+                delete next[deviceId][fileId]
+                if (Object.keys(next[deviceId]).length === 0) delete next[deviceId]
+            }
+            return next
+        })
+        resumeUploadLargeFile(deviceId, fileId, rc)
+    }, [resumeNeeds, resumeUploadLargeFile])
+
+    const cancelResumeNeed = useCallback((deviceId: string, fileId: string) => {
+        setResumeNeeds(prev => {
+            const next = { ...prev }
+            if (next[deviceId]) {
+                delete next[deviceId][fileId]
+                if (Object.keys(next[deviceId]).length === 0) delete next[deviceId]
+            }
+            return next
+        })
+        sendMessage(deviceId, { type: 'transfer-cancelled', data: { fileId } })
+        deleteUploadSession(fileId).catch(() => {})
+    }, [])
+
+    const approveResume = useCallback((deviceId: string, fileId: string) => {
+        if (!pendingOffers.current[deviceId]) pendingOffers.current[deviceId] = new Set()
+        pendingOffers.current[deviceId].add(fileId)
+        if (!resumeRequested.current[deviceId] || !resumeRequested.current[deviceId].has(fileId)) {
+            sendMessage(deviceId, { type: 'resume-offer', data: { fileId } })
+            setSentFileProgress(prev => ({
+                ...prev,
+                [deviceId]: {
+                    ...(prev[deviceId] || {}),
+                    [fileId]: {
+                        name: prev[deviceId]?.[fileId]?.name || fileId,
+                        progress: prev[deviceId]?.[fileId]?.progress || 0,
+                        status: 'waiting-for-receiver'
+                    }
+                }
+            }))
+            return
+        }
+        const setStatus = () => setSentFileProgress(prev => ({
+            ...prev,
+            [deviceId]: {
+                ...(prev[deviceId] || {}),
+                [fileId]: {
+                    name: prev[deviceId]?.[fileId]?.name || fileId,
+                    progress: prev[deviceId]?.[fileId]?.progress || 0,
+                    status: 'resuming'
+                }
+            }
+        }))
+        listAllDownloadMetadata().then(list => {
+            const rec = list.find(d => d.fileId === fileId && d.deviceId === deviceId)
+            const receivedChunks = rec?.chunks_received || 0
+            setStatus()
+            resumeUploadLargeFile(deviceId, fileId, receivedChunks)
+        }).catch(() => {
+            setStatus()
+            resumeUploadLargeFile(deviceId, fileId, 0)
+        })
+    }, [resumeUploadLargeFile])
+
     const downloadFile = useCallback(async (deviceId: string, fileId: string) => {
         const fileInfo = receivedFiles.current[deviceId][fileId];
         if (fileInfo.finalized) return console.warn(`File "${fileInfo.name}" already finalized.`);
@@ -468,15 +1016,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         delete receivedFilePromises.current[deviceId][fileId]
         if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
         if (Object.keys(receivedFilePromises.current[deviceId]).length === 0) delete receivedFilePromises.current[deviceId];
-        setReceivedFileProgress(prev => {
-            return {
-                ...prev,
-                [deviceId]: prev[deviceId] ? {
-                    ...prev[deviceId],
-                    [fileId]: { progress: 100, name: fileInfo.name }
-                } : { [fileId]: { progress: 100, name: fileInfo.name } }
-            }
-        });
+        
         const saveBlobToFile = async (blob: Blob) => {
             if ('cordova' in window && 'FileSystemAPI' in window) {
                 return window.FileSystemAPI.ensureDirectoryExists(window.FileSystemAPI.fileDir, false, true).then(() => {
@@ -505,7 +1045,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                             if (offset < totalSize) {
                                                 writeNextChunk();
                                             } else {
-                                                // Done writing all chunks
+                                                
                                                 saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, fileEntry.nativeURL, Date.now(), false)
                                                     .then(() => {
                                                         flash(`Saved file: ${fileInfo.name}`);
@@ -521,12 +1061,12 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
 
                                         function writeNextChunk() {
                                             const nextChunk = blob.slice(offset, offset + chunkSize);
-                                            fileWriter.seek(offset); // move to correct position
+                                            fileWriter.seek(offset);
                                             fileWriter.write(nextChunk);
                                             offset += nextChunk.size;
                                         }
 
-                                        // Start the first chunk write
+                                        
                                         writeNextChunk();
                                     }, reject)
                                 }, (err) => {
@@ -559,11 +1099,13 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             }
         };
         const saveChunksToFile = (chunks: Uint8Array[]) => {
+            
             saveFileMetadata(fileId, fileInfo.name, fileInfo.type, fileInfo.size, '', Date.now(), true).then(async () => {
                 try {
                     for (let i = 0; i < chunks.length; i++) {
                         await saveChunkToIndexedDB(fileId, i + 1, chunks[i])
                     }
+                    
                     flash('File Saved!')
                     emit('file-saved', fileId)
                 } catch (e) {
@@ -589,7 +1131,9 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 const compressedData = new Uint8Array(decryptedChunks)
                 const decompressedData = brotliDecompress(compressedData);
                 if (autoDownloadFiles || device.app) {
-                    const blob = new Blob([decompressedData], { type: fileInfo.type });
+                    const copy = new Uint8Array(decompressedData.byteLength);
+                    copy.set(decompressedData);
+                    const blob = new Blob([copy.buffer], { type: fileInfo.type });
                     if (device.app) {
                         saveBlobToFile(blob)
                     } else {
@@ -605,39 +1149,65 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             } catch (error) {
                 console.error("Error decompressing Brotli data:", error);
             } finally {
-                delete receivedChunks.current[deviceId][fileId];
-                if (Object.keys(receivedChunks.current[deviceId]).length === 0) delete receivedChunks.current[deviceId];
+                if (receivedChunks.current[deviceId]) {
+                    delete receivedChunks.current[deviceId][fileId];
+                    if (Object.keys(receivedChunks.current[deviceId]).length === 0) delete receivedChunks.current[deviceId];
+                }
             }
         } else {
-            if (receivedChunks.current[deviceId][fileId]) delete receivedChunks.current[deviceId][fileId];
-            if (Object.keys(receivedChunks.current[deviceId]).length === 0) delete receivedChunks.current[deviceId];
+            if (receivedChunks.current[deviceId]?.[fileId]) delete receivedChunks.current[deviceId][fileId];
+            if (receivedChunks.current[deviceId] && Object.keys(receivedChunks.current[deviceId]).length === 0) delete receivedChunks.current[deviceId];
             createIndexedDBChunkStream(fileId).then((compressedStream) => {
                 const inflater = new Inflate();
-                const transformStream = new TransformStream({
-                    start(controller) {
-                        inflater.ondata = (chunk, final) => {
-                            controller.enqueue(chunk);
-                            if (final) controller.terminate();
-                        };
-                    },
-                    async transform(chunk) {
-                        try {
-                            let decrypted
+                let decompressedStream: ReadableStream<Uint8Array>;
+                if (typeof (globalThis as any).TransformStream !== 'undefined' && typeof (compressedStream as any).pipeThrough === 'function') {
+                    const transformStream = new TransformStream({
+                        start(controller) {
+                            inflater.ondata = (chunk, final) => {
+                                controller.enqueue(chunk);
+                                if (final) controller.terminate();
+                            };
+                        },
+                        async transform(chunk) {
                             try {
-                                decrypted = await fileInfo.decrypt(chunk.chunkData, chunk.chunkIndex)
+                                let decrypted
+                                try {
+                                    decrypted = await fileInfo.decrypt(chunk.chunkData, chunk.chunkIndex)
+                                } catch (e) {
+                                    console.error('Failed to decrypt', e)
+                                }
+                                inflater.push(decrypted || new Uint8Array());
                             } catch (e) {
-                                console.error('Failed to decrypt', e)
+                                console.error('Invalid chunk', chunk.chunkData instanceof Uint8Array, chunk)
                             }
-                            inflater.push(decrypted || new Uint8Array());
-                        } catch (e) {
-                            console.error('Invalid chunk', chunk.chunkData instanceof Uint8Array, chunk)
+                        },
+                        flush() {
+                            inflater.push(new Uint8Array(), true)
                         }
-                    },
-                    flush() {
-                        inflater.push(new Uint8Array(), true)
-                    }
-                })
-                const decompressedStream = compressedStream.pipeThrough(transformStream);
+                    })
+                    decompressedStream = (compressedStream as any).pipeThrough(transformStream as any);
+                } else {
+                    decompressedStream = new ReadableStream<Uint8Array>({
+                        async start(controller) {
+                            inflater.ondata = (chunk, final) => {
+                                controller.enqueue(chunk);
+                                if (final) controller.close();
+                            };
+                            const reader = (compressedStream as ReadableStream<any>).getReader();
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+                                try {
+                                    const decrypted = await fileInfo.decrypt(value.chunkData, value.chunkIndex)
+                                    inflater.push(decrypted || new Uint8Array());
+                                } catch (e) {
+                                    console.error('Invalid chunk', e)
+                                }
+                            }
+                            inflater.push(new Uint8Array(), true)
+                        }
+                    })
+                }
                 const reader = decompressedStream.getReader()
                 if (!device.app) {
                     const chunks: Uint8Array[] = [];
@@ -646,21 +1216,24 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                             if (done) {
                                 const finalize = () => {
                                     if (autoDownloadFiles) {
-                                        downloadBlob(new Blob(chunks, { type: fileInfo.type }), fileInfo.name);
+                                        const parts: ArrayBuffer[] = chunks.map((u8) => (u8.buffer as ArrayBuffer).slice(u8.byteOffset, u8.byteOffset + u8.byteLength))
+                                        const blob = new Blob(parts, { type: fileInfo.type })
+                                        downloadBlob(blob, fileInfo.name);
                                     } else {
                                         saveChunksToFile(chunks)
                                     }
                                 }
+                                
                                 deleteFileFromIndexedDB(fileId).then(() => {
                                     finalize()
                                 }).catch(e => {
                                     console.error('Error deleting file from IndexedDB', e);
-                                    if (!autoDownloadFiles) {
-                                        throw new Error('Failed to delete from indexededDB. Did not save.')
+                                    if (autoDownloadFiles) {
+                                        finalize()
+                                    } else {
+                                        fileId = crypto.randomUUID()
+                                        finalize()
                                     }
-                                    //mutate fileId here to ensure that the decompressed chunks are stored to a unique fileId. The old chunks will be deleted on next launch.
-                                    fileId = crypto.randomUUID()
-                                    finalize()
                                 })
                                 return;
                             }
@@ -760,6 +1333,16 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         decrypt
                     };
                 })
+                addDownload(fileId, deviceId, message.data.name, message.data.type, message.data.size, Date.now(), 0).then(() => {
+                    emit('download-start', { fileId })
+                }).catch(() => { })
+                setReceivedFileProgress(prev => ({
+                    ...prev,
+                    [deviceId]: {
+                        ...(prev[deviceId] || {}),
+                        [fileId]: { name: message.data.name, progress: 0, status: 'receiving' }
+                    }
+                }))
                 break;
             }
 
@@ -787,14 +1370,12 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                     const partialChunks = receivedChunks.current[deviceId][fileId]?.get(message.chunkNumber)
                     if (partialChunks && partialChunks.parts.size === partialChunks.totalParts) {
                         fileInfo.chunksReceived += 1;
-                        const receivedSize = Object.values(receivedChunks.current[deviceId][fileId])
-                            .reduce((acc: number, map: Parts) => {
-                                const chunks = Array.from(map.parts.entries()).sort(([indexA], [indexB]) => {
-                                    return indexA - indexB
-                                })
+                        const receivedSize = Array.from(receivedChunks.current[deviceId][fileId].values())
+                            .reduce((acc: number, parts: Parts) => {
+                                const chunks = Array.from(parts.parts.entries()).sort(([indexA], [indexB]) => indexA - indexB)
                                 for (let i = 0; i < chunks.length; i++) {
-                                    const chunk = chunks[i][1]
-                                    acc += (chunk instanceof ArrayBuffer ? chunk.byteLength : new Blob([chunk]).size)
+                                    const chunk = chunks[i][1] as Uint8Array
+                                    acc += chunk.byteLength
                                 }
                                 return acc
                             }, 0);
@@ -805,9 +1386,20 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                 ...prev,
                                 [deviceId]: prev[deviceId] ? {
                                     ...prev[deviceId],
-                                    [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name }
-                                } : { [fileId]: { progress, name: fileInfo.name } }
+                                    [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name, status: prev[deviceId]?.[fileId]?.status || 'receiving' }
+                                } : { [fileId]: { progress, name: fileInfo.name, status: 'receiving' } }
                             }));
+                            const now = Date.now()
+                            const last = downloadSpeed.current[deviceId]?.[fileId]
+                            if (!downloadSpeed.current[deviceId]) downloadSpeed.current[deviceId] = {}
+                            if (last) {
+                                const dt = (now - last.lastTs) / 1000
+                                const db = Math.max(0, receivedSize - last.lastBytes)
+                                if (dt > 0 && db >= 0) emitter.emit('download-speed', { fileId, bps: db / dt })
+                            }
+                            downloadSpeed.current[deviceId][fileId] = { lastBytes: receivedSize, lastTs: now }
+                            emit('download-progress', { fileId, progress })
+                            updateDownload({ fileId, chunks_received: fileInfo.chunksReceived }).catch(() => { })
                         }
                     }
 
@@ -841,9 +1433,20 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                                     ...prev,
                                     [deviceId]: prev[deviceId] ? {
                                         ...prev[deviceId],
-                                        [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name }
-                                    } : { [fileId]: { progress, name: fileInfo.name } }
+                                        [fileId]: { progress: Math.max((prev[deviceId]?.[fileId]?.progress || 0), progress), name: fileInfo.name, status: prev[deviceId]?.[fileId]?.status || 'receiving' }
+                                    } : { [fileId]: { progress, name: fileInfo.name, status: 'receiving' } }
                                 }));
+                                const now = Date.now()
+                                const last = downloadSpeed.current[deviceId]?.[fileId]
+                                if (!downloadSpeed.current[deviceId]) downloadSpeed.current[deviceId] = {}
+                                if (last) {
+                                    const dt = (now - last.lastTs) / 1000
+                                    const db = Math.max(0, fileInfo.progress - last.lastBytes)
+                                    if (dt > 0 && db >= 0) emitter.emit('download-speed', { fileId, bps: db / dt })
+                                }
+                                downloadSpeed.current[deviceId][fileId] = { lastBytes: fileInfo.progress, lastTs: now }
+                                emit('download-progress', { fileId, progress })
+                                updateDownload({ fileId, chunks_received: fileInfo.chunksReceived }).catch(() => { })
                             }
                         }).catch(e => {
                             console.error('Error saving chunk to IndexedDB', e);
@@ -858,43 +1461,89 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 if (currentTransfers.current[deviceId]) {
                     currentTransfers.current[deviceId][fileId] = 'cancelled';
                 }
+                
+                deleteUploadSession(fileId).catch(() => { })
+                setSentFileProgress(prev => {
+                    if (!prev[deviceId] || !prev[deviceId][fileId]) return prev;
+                    const updatedDevice = { ...prev[deviceId] };
+                    delete updatedDevice[fileId];
+                    if (Object.keys(updatedDevice).length === 0) {
+                        const updated = { ...prev } as typeof prev;
+                        delete updated[deviceId];
+                        return updated;
+                    }
+                    return { ...prev, [deviceId]: updatedDevice };
+                })
                 break
             }
             case "file-pause": {
                 if (currentTransfers.current[deviceId]) {
                     currentTransfers.current[deviceId][fileId] = 'paused';
                 }
+                setSentFileProgress(prev => {
+                    if (!prev[deviceId] || !prev[deviceId][fileId]) return prev;
+                    return {
+                        ...prev,
+                        [deviceId]: {
+                            ...prev[deviceId],
+                            [fileId]: {
+                                ...prev[deviceId][fileId],
+                                status: 'paused'
+                            }
+                        }
+                    }
+                })
                 break;
             }
             case "file-resume": {
                 if (currentTransfers.current[deviceId]) {
                     currentTransfers.current[deviceId][fileId] = 'uploading';
                 }
+                setSentFileProgress(prev => {
+                    if (!prev[deviceId] || !prev[deviceId][fileId]) return prev;
+                    return {
+                        ...prev,
+                        [deviceId]: {
+                            ...prev[deviceId],
+                            [fileId]: {
+                                ...prev[deviceId][fileId],
+                                status: 'uploading'
+                            }
+                        }
+                    }
+                })
                 break;
             }
             case 'cancel-upload': {
-                delete receivedChunks.current[deviceId][fileId];
-                delete receivedFiles.current[deviceId][fileId];
-                delete receivedFilePromises.current[deviceId][fileId]
+                if (receivedChunks.current[deviceId]) delete receivedChunks.current[deviceId][fileId];
+                if (receivedFiles.current[deviceId]) delete receivedFiles.current[deviceId][fileId];
+                if (receivedFilePromises.current[deviceId]) delete receivedFilePromises.current[deviceId][fileId]
 
-                if (Object.keys(receivedChunks.current[deviceId]).length === 0) delete receivedChunks.current[deviceId];
-                if (Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
-                if (Object.keys(receivedFilePromises.current[deviceId]).length === 0) delete receivedFilePromises.current[deviceId];
+                if (receivedChunks.current[deviceId] && Object.keys(receivedChunks.current[deviceId]).length === 0) delete receivedChunks.current[deviceId];
+                if (receivedFiles.current[deviceId] && Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
+                if (receivedFilePromises.current[deviceId] && Object.keys(receivedFilePromises.current[deviceId]).length === 0) delete receivedFilePromises.current[deviceId];
 
                 setReceivedFileProgress(prev => {
-                    if (!prev[deviceId]) return prev;
-                    if (!prev[deviceId][fileId]) return prev;
+                    if (!prev[deviceId] || !prev[deviceId][fileId]) return prev;
                     const updatedDevice = { ...prev[deviceId] };
                     delete updatedDevice[fileId];
-
-                    if (Object.keys(updatedDevice[deviceId]).length === 0) {
-                        const updatedProgress = { ...prev };
-                        delete updatedProgress[deviceId];
-                        return updatedProgress;
+                    if (Object.keys(updatedDevice).length === 0) {
+                        const updated = { ...prev } as typeof prev;
+                        delete updated[deviceId];
+                        return updated;
                     }
-
                     return { ...prev, [deviceId]: updatedDevice };
                 })
+                patchDownload(fileId, { cancelled: true }).then(() => {
+                    emit('download-cancelled', fileId)
+                }).catch(() => { })
+                
+                Promise.allSettled([
+                    deleteFileFromIndexedDB(fileId),
+                    deleteFileMetadata(fileId)
+                ]).then(() => {
+                    emit('file-deleted', fileId)
+                }).catch(() => { })
                 break
             }
             case "file-end":
@@ -906,13 +1555,19 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 !(async () => {
                     while (fileInfo.chunksReceived !== fileInfo.chunkCount) {
                         if (finishEnd < Date.now()) {
-                            return
-                        } else {
-                            console.warn(`File transfer incomplete for ${fileInfo.name}. Expected ${fileInfo.chunkCount} chunks, received ${fileInfo.chunksReceived}. Waiting to finish...`);
-                            await new Promise((res) => setTimeout(res, 350))
+                            console.warn('Finalizing after timeout', { expected: fileInfo.chunkCount, received: fileInfo.chunksReceived, name: fileInfo.name })
+                            break
                         }
+                        console.warn(`File transfer incomplete for ${fileInfo.name}. Expected ${fileInfo.chunkCount} chunks, received ${fileInfo.chunksReceived}. Waiting to finish...`);
+                        await new Promise((res) => setTimeout(res, 350))
                     }
+                    
+                    updateDownload({ fileId, chunks_received: fileInfo.chunksReceived }).then(() => {
+                        emit('download-complete', fileId)
+                    }).catch(() => { })
+                    patchDownload(fileId, { totalChunks: fileInfo.chunkCount }).catch(() => { })
                     downloadFile(deviceId, fileId)
+                    deleteDownload(fileId).catch(() => { })
                 })();
                 break;
             default:
@@ -920,13 +1575,17 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         }
     }, [downloadFile])
 
+    const onDataChannelMessageRef = useRef(onDataChannelMessage)
+    useEffect(() => { onDataChannelMessageRef.current = onDataChannelMessage }, [onDataChannelMessage])
+
     const setupDataChannel = useCallback((channel: RTCDataChannel, deviceId: string) => {
         channel.onopen = () => { }
         channel.onclose = () => {
             disconnectPeerConnection(deviceId);
         }
         channel.onmessage = (event) => {
-            onDataChannelMessage(deviceId, event.data);
+            const fn = onDataChannelMessageRef.current
+            if (fn) fn(deviceId, event.data)
         }
         channel.onerror = (error) => {
             console.error(`DataChannel error with ${deviceId}:`, error);
@@ -1029,7 +1688,7 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                     };
 
                     if (!autoAcceptFiles) {
-                        confirm(`Accept file "${name}" (${formatBytes(size, 2)}) from ${state.peers.find((({ deviceId: d }) => d === deviceId))?.deviceName || deviceId}?`, (accepted) => {
+                    confirm(`Accept file "${name}" (${formatBytes(size, 2)}) from ${state.peers.find((({ deviceId: d }) => d === deviceId))?.deviceName || deviceId}?`, (accepted) => {
                             if (accepted) {
                                 sendMessage(deviceId, { type: "file-accept", fileId, requestId: data.requestId });
                             } else {
@@ -1041,6 +1700,19 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                         sendMessage(deviceId, { type: "file-accept", fileId, requestId: data.requestId });
                         delete pendingFileRequests.current[fileId];
                     }
+
+                    
+                    try {
+                        const bytes = await getDownloadedBytes(fileId)
+                        const pct = size > 0 ? Math.min(100, Math.round((bytes / size) * 100)) : 0
+                        setReceivedFileProgress(prev => ({
+                            ...prev,
+                            [deviceId]: {
+                                ...(prev[deviceId] || {}),
+                                [fileId]: { name, progress: pct, status: pct > 0 ? 'pending' : undefined }
+                            }
+                        }))
+                    } catch {}
                     break;
                 }
                 case "file-accept":
@@ -1066,6 +1738,147 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
                 case "webrtc-ice":
                     peerConnections.current[deviceId]?.addIceCandidate(new RTCIceCandidate(data.data));
                     break;
+                case 'resume-request': {
+                    
+                    const fid = data.data.fileId
+                    const rbytes = data.data.receivedBytes || 0
+                    let sName = uploadSessions.current[deviceId]?.[fid]?.name as string | undefined
+                    let sSize = uploadSessions.current[deviceId]?.[fid]?.size as number | undefined
+                    if (!sName || !sSize) {
+                        try {
+                            const sess = await getUploadSessionByFileId(fid)
+                            if (sess && sess.deviceId === deviceId) {
+                                sName = sess.name
+                                sSize = sess.size
+                            }
+                        } catch {}
+                    }
+                    if (sName && sSize) {
+                        const pct = sSize > 0 ? Math.min(100, Math.round((rbytes / sSize) * 100)) : 0
+                        setSentFileProgress(prev => ({
+                            ...prev,
+                            [deviceId]: {
+                                ...(prev[deviceId] || {}),
+                                [fid]: { name: sName!, progress: pct, status: 'pending' }
+                            }
+                        }))
+                    }
+                    
+                    ;(resumeRequested.current[deviceId] || (resumeRequested.current[deviceId] = new Set())).add(fid)
+                    if (pendingOffers.current[deviceId] && pendingOffers.current[deviceId].has(fid)) {
+                        const setStatus = () => setSentFileProgress(prev => ({
+                            ...prev,
+                            [deviceId]: {
+                                ...(prev[deviceId] || {}),
+                                [fid]: {
+                                    name: sName || fid,
+                                    progress: prev[deviceId]?.[fid]?.progress || 0,
+                                    status: 'resuming'
+                                }
+                            }
+                        }))
+                        const list = await listAllDownloadMetadata().catch(() => [])
+                        const rec = (list as any[]).find((d: any) => d.fileId === fid && d.deviceId === deviceId)
+                        const receivedChunks = rec?.chunks_received || 0
+                        setStatus()
+                        resumeUploadLargeFile(deviceId, fid, receivedChunks)
+                    } else if (autoResume) approveResume(deviceId, fid)
+                    break
+                }
+                case 'resume-status': {
+                    const fid = data.data.fileId
+                    const rbytes = data.data.receivedBytes || 0
+                    let sName = uploadSessions.current[deviceId]?.[fid]?.name as string | undefined
+                    let sSize = uploadSessions.current[deviceId]?.[fid]?.size as number | undefined
+                    if (!sName || !sSize) {
+                        try {
+                            const sess = await getUploadSessionByFileId(fid)
+                            if (sess && sess.deviceId === deviceId) {
+                                sName = sess.name
+                                sSize = sess.size
+                            }
+                        } catch {}
+                    }
+                    if (sName && sSize) {
+                        const pct = sSize > 0 ? Math.min(100, Math.round((rbytes / sSize) * 100)) : 0
+                        setSentFileProgress(prev => ({
+                            ...prev,
+                            [deviceId]: {
+                                ...(prev[deviceId] || {}),
+                                [fid]: { name: sName!, progress: pct, status: 'pending' }
+                            }
+                        }))
+                    }
+                    break
+                }
+                case 'resume-offer': {
+                    const fid = data.data.fileId
+                    listAllDownloadMetadata().then(async list => {
+                        const rec = list.find(d => d.fileId === fid && d.deviceId === deviceId)
+                        const bytes = await getDownloadedBytes(fid).catch(() => 0)
+                        const name = rec?.name || fid
+                        const size = rec?.size || 0
+                        const pct = size > 0 ? Math.min(100, Math.round((bytes / size) * 100)) : 0
+                        setReceivedFileProgress(prev => ({
+                            ...prev,
+                            [deviceId]: {
+                                ...(prev[deviceId] || {}),
+                                [fid]: { name, progress: pct, status: 'pending' }
+                            }
+                        }))
+                    }).catch(() => {})
+                    break
+                }
+                case 'resume-unsupported': {
+                    const fileId = data.data.fileId
+                    listAllDownloadMetadata().then(list => {
+                        const meta = list.find(d => d.fileId === fileId)
+                        if (meta) flash(`Resume not supported: ${meta.name}`)
+                        else flash('Resume not supported for this file')
+                        return patchDownload(fileId, { cancelled: true }).catch(() => {})
+                    }).catch(() => {
+                        flash('Resume not supported for this file')
+                    })
+                    break
+                }
+                case 'transfer-cancelled': {
+                    const fid = data.data.fileId
+                    patchDownload(fid, { cancelled: true }).then(() => {
+                        emit('download-cancelled', fid)
+                    }).catch(() => { })
+                    
+                    if (receivedChunks.current[deviceId]) delete receivedChunks.current[deviceId][fid];
+                    if (receivedFiles.current[deviceId]) delete receivedFiles.current[deviceId][fid];
+                    if (receivedFilePromises.current[deviceId]) delete receivedFilePromises.current[deviceId][fid]
+                    if (receivedChunks.current[deviceId] && Object.keys(receivedChunks.current[deviceId]).length === 0) delete receivedChunks.current[deviceId];
+                    if (receivedFiles.current[deviceId] && Object.keys(receivedFiles.current[deviceId]).length === 0) delete receivedFiles.current[deviceId];
+                    if (receivedFilePromises.current[deviceId] && Object.keys(receivedFilePromises.current[deviceId]).length === 0) delete receivedFilePromises.current[deviceId];
+                    setReceivedFileProgress(prev => {
+                        if (!prev[deviceId] || !prev[deviceId][fid]) return prev;
+                        const updatedDevice = { ...prev[deviceId] };
+                        delete updatedDevice[fid];
+                        if (Object.keys(updatedDevice).length === 0) {
+                            const updated = { ...prev } as typeof prev;
+                            delete updated[deviceId];
+                            return updated;
+                        }
+                        return { ...prev, [deviceId]: updatedDevice };
+                    })
+                    
+                    setSentFileProgress(prev => {
+                        if (!prev[deviceId] || !prev[deviceId][fid]) return prev;
+                        const updatedDevice = { ...prev[deviceId] };
+                        delete updatedDevice[fid];
+                        if (Object.keys(updatedDevice).length === 0) {
+                            const updated = { ...prev } as typeof prev;
+                            delete updated[deviceId];
+                            return updated;
+                        }
+                        return { ...prev, [deviceId]: updatedDevice };
+                    })
+                    
+                    break
+                }
                 default:
                     console.warn("Unknown WebSocket message type:", data.type);
                     break;
@@ -1135,12 +1948,67 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
         };
     }, []);
     const connectedPeers = useMemo(() => Object.keys(rtcPeers), [rtcPeers])
-    const availablePeers = useMemo(() => state.peers.filter(({ deviceId }) => !rtcPeers[deviceId]).map(peer => peer.deviceId), [state.peers, rtcPeers])
+    const availablePeers = useMemo(() => Array.from(new Set(state.peers.filter(({ deviceId }) => !rtcPeers[deviceId]).map(peer => peer.deviceId))), [state.peers, rtcPeers])
     useEffect(() => {
         if (!connectedPeers.includes(selectedPeer) && !availablePeers.includes(selectedPeer)) {
             setSelectedPeer('')
         }
     }, [selectedPeer, connectedPeers, availablePeers])
+    useEffect(() => {
+        const run = async () => {
+            const downloads = await listAllDownloadMetadata().catch(() => [])
+            for (const deviceId of connectedPeers) {
+                for (const d of downloads) {
+                    if (d.deviceId !== deviceId) continue
+                    if (d.cancelled) continue
+                    const total = d.totalChunks || 0
+                    const rc = d.chunks_received || 0
+                    const inProgress = (total === 0 || rc < total)
+                    if (!inProgress) continue
+                    const bytes = await getDownloadedBytes(d.fileId).catch(() => 0)
+                    const pct = d.size > 0 ? Math.min(100, Math.round((bytes / d.size) * 100)) : 0
+                    setReceivedFileProgress(prev => ({
+                        ...prev,
+                        [deviceId]: {
+                            ...(prev[deviceId] || {}),
+                            [d.fileId]: {
+                                name: d.name,
+                                progress: pct,
+                                status: 'pending'
+                            }
+                        }
+                    }))
+                    
+                    sendMessage(deviceId, { type: 'resume-status', data: { fileId: d.fileId, receivedChunks: rc, receivedBytes: bytes } })
+                }
+            }
+        }
+        run()
+    }, [connectedPeers])
+
+    useEffect(() => {
+        const run = async () => {
+            const sessions = await listAllUploadSessions().catch(() => [])
+            for (const deviceId of connectedPeers) {
+                for (const s of sessions) {
+                    if (s.deviceId !== deviceId) continue
+                    if (s.small) continue
+                    setSentFileProgress(prev => ({
+                        ...prev,
+                        [deviceId]: {
+                            ...(prev[deviceId] || {}),
+                            [s.fileId]: {
+                                name: s.name,
+                                progress: prev[deviceId]?.[s.fileId]?.progress || 0,
+                                status: 'pending'
+                            }
+                        }
+                    }))
+                }
+            }
+        }
+        run()
+    }, [connectedPeers])
     return (
         <P2PContext.Provider value={{
             selectedPeer,
@@ -1154,14 +2022,21 @@ export const P2PProvider: React.FC<React.PropsWithChildren<{}>> = ({ children })
             createPeerConnection,
             disconnectPeerConnection,
             requestFileTransfer,
+            requestResume,
             connectedPeers,
             availablePeers,
             cancelUpload,
             sentFileProgress,
             autoAcceptFiles,
             autoDownloadFiles,
+            autoResume,
             setAutoAcceptFiles,
             setAutoDownloadFiles,
+            setAutoResume,
+            resumeNeeds,
+            provideResumeFile,
+            cancelResumeNeed,
+            approveResume,
         }}>
             {children}
         </P2PContext.Provider>
