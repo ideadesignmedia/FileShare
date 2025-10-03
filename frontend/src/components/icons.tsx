@@ -195,5 +195,10 @@ export default {
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v9" />
       <rect x="3" y="14" width="18" height="6" rx="2" ry="2" />
     </svg>
+  ),
+  check: (
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 12l5 5L20 7" />
+    </svg>
   )
 }

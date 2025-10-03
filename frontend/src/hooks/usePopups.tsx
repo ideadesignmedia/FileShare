@@ -8,6 +8,7 @@ const SavedFilesPopup = React.lazy(() => import('../components/SavedFilesPopup')
 const SettingsPopup = React.lazy(() => import('../components/SettingsPopup'))
 const SelectSavedFile = React.lazy(() => import('../components/SelectSavedFile'))
 const FileInfoPopup = React.lazy(() => import('../components/FileInfoPopup'))
+const SharePopup = React.lazy(() => import('../components/SharePopup'))
 
 export default function usePopups() {
     const [popups, setPopups] = React.useState<({ popup: React.ReactElement, onClose?: () => void, showClose: boolean })[]>([])
@@ -50,10 +51,16 @@ export default function usePopups() {
                 showClose = true
                 break
             }
+            case 'share': {
+                element = <SharePopup onDone={() => removePopup()} />
+                showClose = true
+                break
+            }
             case 'select-saved-file': {
                 element = <SelectSavedFile onSelect={(file: any) => {
-                    removePopup()
-                    if (options && typeof options.onSelect === 'function') options.onSelect(file)
+                    if (options && typeof options.onSelect === 'function') {
+                        setTimeout(() => options.onSelect(file), 0)
+                    }
                 }} />
                 showClose = true
                 break

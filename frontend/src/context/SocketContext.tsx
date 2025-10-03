@@ -67,9 +67,43 @@ export const SocketProvider: React.FC<React.PropsWithChildren<{}>> = ({ children
                 }})
                 break
             }
+            case 'qr-created': {
+                const d: any = (data as any).data
+                if (d?.requestId) emit('qr:' + d.requestId, d)
+                break
+            }
             case 'pong': break
             case 'ping': {
                 send({type: 'pong'})
+                break
+            }
+            case 'share-created': {
+                emit('share-created', (data as any).data)
+                break
+            }
+            case 'share-guest-connected': {
+                const d: any = (data as any).data
+                emit('share:' + d.token, data)
+                break
+            }
+            case 'share-status': {
+                const d: any = (data as any).data
+                emit('share:' + d.token, data)
+                break
+            }
+            case 'share-guest-accepted': {
+                const d: any = (data as any).data
+                emit('share:' + d.token, data)
+                break
+            }
+            case 'share-signal': {
+                const d: any = (data as any).data
+                emit('share:' + d.token, data)
+                break
+            }
+            case 'share-error': {
+                const d: any = (data as any).data
+                if (d?.token) emit('share:' + d.token, data)
                 break
             }
             default: {

@@ -11,6 +11,7 @@ const Header: React.FC<HeaderProps> = ({ }) => {
     const headerOptions = useMemo(() => {
         return <>
             <Button size="sm" variant="light" className="font-medium uppercase" onClick={() => addPopup('saved-files')}>Files ({files.length})</Button>
+            <Button size="sm" variant="light" className="font-medium uppercase" onClick={() => addPopup('share')}>Share</Button>
             <Button icon size="sm" variant="light" className="h-8 w-8 leading-none inline-flex items-center justify-center" onClick={() => addPopup('settings')} aria-label="Settings">{icons.cog}</Button>
         </>
     }, [files, addPopup])

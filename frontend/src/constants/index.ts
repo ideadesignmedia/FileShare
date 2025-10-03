@@ -1,4 +1,7 @@
-export const wsUrl = import.meta.env.VITE_WS_URL || (typeof window !== 'undefined' ? `ws://${window.location.hostname}:${window.location.port || '8080'}/ws/` : '');
+// WebSocket endpoint of the backend (separate domain is supported)
+// Expect `VITE_WS_URL` like: ws://backend.example.com/ or wss://backend.example.com/
+// Fallback (dev): same host + current port, root path
+export const wsUrl = import.meta.env.VITE_WS_URL || (typeof window !== 'undefined' ? `ws://${window.location.hostname}:${window.location.port || '8080'}/` : '');
 export const rtcOptions: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },

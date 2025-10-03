@@ -22,7 +22,7 @@ const SelectSavedFile: React.FC<Props> = ({ onSelect }) => {
                 <div className="font-medium truncate">{f.name}</div>
                 <div className="text-xs text-slate-600 truncate">{f.type} • {formatBytes(f.size)}</div>
               </div>
-              <Button size="sm" onClick={() => onSelect({ fileId: f.fileId, name: f.name, type: f.type, size: f.size })}>Send</Button>
+              <Button size="sm" onClick={() => onSelect({ fileId: f.fileId, name: f.name, type: f.type, size: f.size })}>Add</Button>
             </li>
           ))}
         </ul>
@@ -34,4 +34,3 @@ const SelectSavedFile: React.FC<Props> = ({ onSelect }) => {
 }
 
 export default SelectSavedFile
-

@@ -13,7 +13,9 @@ export type FileMetadata = {
     downloaded_at: number,
     stored_in_db: boolean,
     folderRoot?: string,
-    relativePath?: string
+    relativePath?: string,
+    temp?: boolean,
+    shareToken?: string
 }
 export type SavedChunk = {
     id: number,
@@ -494,12 +496,66 @@ export async function listAllFileMetadata(): Promise<Array<FileMetadata>> {
             } else {
                 for (let i = 0; i < result.length; i++) {
                     result[i].stored_in_db = (result[i].stored_in_db as any) === 'true'
+                    if ((result[i] as any).temp === 'true') (result[i] as any).temp = true
                 }
                 resolve(result);
             }
         };
         request.onerror = () => reject(request.error);
     });
+}
+
+export async function listTempFilesByShareToken(shareToken: string): Promise<FileMetadata[]> {
+    const all = await listAllFileMetadata()
+    return all.filter(f => (f as any).temp === true && (f as any).shareToken === shareToken)
+}
+
+export async function deleteTempFilesByShareToken(shareToken: string): Promise<void> {
+    const db = await openIndexedDB();
+    const tx = db.transaction(["fileMetadata"], "readonly");
+    const store = tx.objectStore("fileMetadata");
+    const files: string[] = []
+    await new Promise<void>((resolve, reject) => {
+        const req = store.openCursor()
+        req.onsuccess = (e: any) => {
+            const cursor = e.target.result
+            if (cursor) {
+                const v = cursor.value
+                if ((v.temp === true || v.temp === 'true') && v.shareToken === shareToken) {
+                    files.push(v.fileId)
+                }
+                cursor.continue()
+            } else resolve()
+        }
+        req.onerror = () => reject(req.error)
+    })
+    for (let i = 0; i < files.length; i++) {
+        try { await deleteFileFromIndexedDB(files[i]) } catch {}
+        try { await deleteFileMetadata(files[i]) } catch {}
+    }
+}
+
+export async function listShareFilesByToken(shareToken: string): Promise<FileMetadata[]> {
+    const all = await listAllFileMetadata()
+    return all.filter(f => (f as any).shareToken === shareToken)
+}
+
+export async function markFilesForShare(shareToken: string, fileIds: string[]): Promise<void> {
+    const db = await openIndexedDB();
+    await Promise.all(fileIds.map(fileId => new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('fileMetadata', 'readwrite')
+        const store = tx.objectStore('fileMetadata')
+        const index = store.index('fileIdIndex')
+        const req = index.get(fileId)
+        req.onsuccess = () => {
+            const existing = req.result
+            if (existing) {
+                store.put({ ...existing, shareToken })
+            }
+        }
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+    })))
 }
 
 export async function clearAllStorage(): Promise<void> {

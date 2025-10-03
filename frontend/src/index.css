@@ -97,6 +97,19 @@
     p, span {
         @apply text-base text-inherit leading-relaxed;
     }
+
+    /* Ensure no decorative quotes are injected by user agents or styles */
+    h1::before, h1::after,
+    h2::before, h2::after,
+    h3::before, h3::after,
+    h4::before, h4::after,
+    h5::before, h5::after,
+    h6::before, h6::after,
+    q::before, q::after,
+    blockquote::before, blockquote::after {
+        content: none !important;
+    }
+    h1, h2, h3, h4, h5, h6, q, blockquote { quotes: none; }
     
     /* Links */
     a {

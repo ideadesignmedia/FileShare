@@ -1,4 +1,4 @@
-const cacheNumber = 207
+const cacheNumber = 208
 const cachePrefix = 'Cache-v'
 const toCacheName = (cacheNumber) => `${cachePrefix}${cacheNumber}`
 const cacheName = toCacheName(cacheNumber)
@@ -291,11 +291,14 @@ self.addEventListener('fetch', (e) => {
         }))
     }
     if (method === 'GET' && e.request.mode === 'navigate' && sameDomain(self.location.origin, url) && !fileTest.test(pathname)) {
-        //automatically redirect to the homepage from service worker when they request a route other than home.
-        //The SPA should load and send them to the correct path within the SPA.
-        //i.e if they go to /providers/payments the SPA should be responsible for routing them there via the app state logic.
-        // Otherwise they will need to navigate back to where they were if they reload the current pathname and it isn't the homepage.
-        return e.respondWith(Response.redirect(self.location.origin, 302));
+        // Serve SPA shell without redirect, prefer network to pick up new builds, fallback to cache.
+        return e.respondWith(
+            fetch('/').then(resp => {
+                // Cache the shell for next time
+                caches.open(cacheName).then(cache => { try { cache.put(self.location.origin + '/', resp.clone()) } catch {} })
+                return resp
+            }).catch(() => caches.match(self.location.origin + '/'))
+        )
     }
     return respondWithFetchAndCache()
 })

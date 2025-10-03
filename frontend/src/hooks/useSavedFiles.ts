@@ -11,7 +11,7 @@ export const useSavedFiles = () => {
         }, [])
     const getFiles = useCallback(() => {
         return listAllFileMetadata().then(files => {
-            setSavedFiles(files)
+            setSavedFiles(files.filter(f => !(f as any).temp))
         }).catch(e => {
             console.error(e)
             setSavedFiles([])

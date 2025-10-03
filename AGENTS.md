@@ -32,10 +32,12 @@ Config: copy `config-sample.*` in each package to a local config (e.g., `config.
 - Filenames: React components `PascalCase.tsx`; utilities/constants `kebab-case.ts`.
 - Identifiers: camelCase (vars/functions); PascalCase (types/components).
 - Lint: frontend uses ESLint (`npm run lint`). Keep imports ordered and avoid unused vars.
-NEVER ADD UNNECESSARY COMMENTS
-Do not use em dashes.
-Do not instantiate unused variables.
-Always make sure used variables are defined.
+- Do not add comments.
+- Do not use em dashes.
+- Do not instantiate unused variables.
+- Always make sure used variables are defined.
+- Make sure all variables are used.
+- Regular expressions that are reused throughout the process' lifecycle should be instantiated in a global scope to avoid recreation.
 
 ## Testing Guidelines
 - No test runner is preconfigured. If adding tests:

@@ -1,190 +1,284 @@
-import { ZipWriter, BlobWriter } from "@zip.js/zip.js";
-import type { FileMetadata } from './indexed-db'
-import { createIndexedDBFileByteStream } from './indexed-db'
+const crcTable = (() => {
+  const table = new Uint32Array(256)
+  for (let n = 0; n < 256; n++) {
+    let c = n
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1)
+    table[n] = c >>> 0
+  }
+  return table
+})()
 
-/**
- * Streams a zip archive containing the given files.
- * 
- * Each file is added using its webkitRelativePath (if available) or file name,
- * so that folder structure is preserved.
- *
- * @param files - An array of File objects.
- * @returns A ReadableStream<Uint8Array> representing the zip archive.
- */
-export function streamFolderToZip(files: File[]): ReadableStream<Uint8Array> {
-    // Create a TransformStream for the zip output.
-    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-
-    // Immediately start an async process to write the zip data.
-    (async () => {
-        try {
-            // Create a ZipWriter that writes to the writable stream.
-            const zipWriter = new ZipWriter(writable);
-
-            // For each file, add it to the zip archive.
-            // Using file.webkitRelativePath (if available) preserves folder structure.
-            for (const file of files) {
-                // Note: webkitRelativePath may not be present on all File objects.
-                const entryName = (file as any).webkitRelativePath || file.name;
-                // file.stream() returns a ReadableStream<Uint8Array> that ZipWriter accepts.
-                await zipWriter.add(entryName, file.stream());
-            }
-
-            // Finalize the zip archive.
-            await zipWriter.close();
-        } catch (err) {
-            console.error("Error creating zip stream:", err);
-            // Abort the writable stream if an error occurs.
-            writable.getWriter().abort(err);
-        }
-    })();
-
-    // Return the ReadableStream immediately.
-    return readable;
+function crc32(data: Uint8Array) {
+  let c = 0xffffffff
+  for (let i = 0; i < data.length; i++) c = (c >>> 8) ^ crcTable[(c ^ data[i]) & 0xff]
+  return (c ^ 0xffffffff) >>> 0
 }
-type CompressionRatios = {
-    [key: string]: number;
-};
 
-// Expanded compression ratios for a wide variety of file types
-const COMPRESSION_RATIOS: CompressionRatios = {
-    // Text-based files (Highly compressible)
-    "text/plain": 0.3,         // .txt
-    "text/html": 0.3,          // .html, .htm
-    "application/json": 0.3,    // .json
-    "application/xml": 0.3,     // .xml
-    "text/css": 0.3,            // .css
-    "text/csv": 0.25,           // .csv
-    "application/javascript": 0.4, // .js
-    "application/typescript": 0.4, // .ts
+function toDosTime(date: Date) {
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  const hours = date.getHours()
+  const minutes = date.getMinutes()
+  const seconds = Math.floor(date.getSeconds() / 2)
+  const dosTime = (hours << 11) | (minutes << 5) | seconds
+  const dosDate = ((year - 1980) << 9) | (month << 5) | day
+  return { dosTime, dosDate }
+}
 
-    // Image files (Mostly already compressed)
-    "image/jpeg": 0.98,         // .jpg, .jpeg
-    "image/png": 0.98,          // .png
-    "image/gif": 0.95,          // .gif
-    "image/webp": 0.98,         // .webp
-    "image/bmp": 0.6,           // .bmp
-    "image/tiff": 0.6,          // .tiff, .tif
-    "image/svg+xml": 0.4,       // .svg (text-based)
+function u16(n: number) {
+  const b = new Uint8Array(2)
+  const v = n & 0xffff
+  b[0] = v & 0xff
+  b[1] = (v >>> 8) & 0xff
+  return b
+}
 
-    // Video files (Highly compressed already)
-    "video/mp4": 0.99,
-    "video/x-matroska": 0.99,
-    "video/webm": 0.99,
-    "video/quicktime": 0.98,
-    "video/avi": 0.95,
+function u32(n: number) {
+  const b = new Uint8Array(4)
+  const v = n >>> 0
+  b[0] = v & 0xff
+  b[1] = (v >>> 8) & 0xff
+  b[2] = (v >>> 16) & 0xff
+  b[3] = (v >>> 24) & 0xff
+  return b
+}
 
-    // Audio files (Mostly already compressed)
-    "audio/mpeg": 0.98,         // .mp3
-    "audio/wav": 0.5,           // .wav (uncompressed)
-    "audio/ogg": 0.98,          // .ogg
-    "audio/flac": 0.95,         // .flac
-    "audio/aac": 0.98,          // .aac
+function concat(parts: Uint8Array[]) {
+  let len = 0
+  for (let i = 0; i < parts.length; i++) len += parts[i].length
+  const out = new Uint8Array(len)
+  let off = 0
+  for (let i = 0; i < parts.length; i++) { out.set(parts[i], off); off += parts[i].length }
+  return out
+}
 
-    // Document files
-    "application/pdf": 0.9,
-    "application/msword": 0.85,
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 0.85,
-    "application/vnd.ms-excel": 0.8,
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 0.8,
-    "application/vnd.ms-powerpoint": 0.85,
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": 0.85,
-    "application/rtf": 0.5,     // .rtf (Rich Text Format)
+export async function zipFiles(entries: { path: string, file: File }[], zipName: string): Promise<File> {
+  const encoder = new TextEncoder()
+  const now = new Date()
+  const { dosTime, dosDate } = toDosTime(now)
+  const localParts: Uint8Array[] = []
+  const centralParts: Uint8Array[] = []
+  let offset = 0
 
-    // Archive files (Already compressed)
-    "application/zip": 1.0,
-    "application/x-rar-compressed": 1.0,
-    "application/x-7z-compressed": 1.0,
-    "application/x-tar": 0.6,   // .tar (Uncompressed)
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+    const name = e.path.replace(/^\/+/, '')
+    const nameBytes = encoder.encode(name)
+    const data = new Uint8Array(await e.file.arrayBuffer())
+    const crc = crc32(data)
+    const lfh = [
+      u32(0x04034b50),
+      u16(20),
+      u16(0),
+      u16(0),
+      u16(dosTime),
+      u16(dosDate),
+      u32(crc),
+      u32(data.length),
+      u32(data.length),
+      u16(nameBytes.length),
+      u16(0),
+      nameBytes,
+    ]
+    const lfhBuf = concat(lfh as unknown as Uint8Array[])
+    localParts.push(lfhBuf)
+    localParts.push(data)
 
-    // Executable files
-    "application/x-executable": 0.7,
-    "application/octet-stream": 0.7, // General binary files
+    const cdfh = [
+      u32(0x02014b50),
+      u16(20),
+      u16(20),
+      u16(0),
+      u16(0),
+      u16(dosTime),
+      u16(dosDate),
+      u32(crc),
+      u32(data.length),
+      u32(data.length),
+      u16(nameBytes.length),
+      u16(0),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(0),
+      u32(offset),
+      nameBytes,
+    ]
+    const cdfhBuf = concat(cdfh as unknown as Uint8Array[])
+    centralParts.push(cdfhBuf)
+    offset += lfhBuf.length + data.length
+  }
 
-    // Code files (Highly compressible)
-    "application/x-sh": 0.3,    // .sh (Shell scripts)
-    "application/x-python": 0.35, // .py
-    "application/x-java": 0.35,  // .java
-    "application/x-c": 0.35,     // .c, .cpp
-    "application/x-ruby": 0.35,  // .rb
-    "application/x-php": 0.35,   // .php
+  const central = concat(centralParts)
+  const locals = concat(localParts)
+  const eocd = concat([
+    u32(0x06054b50),
+    u16(0),
+    u16(0),
+    u16(entries.length),
+    u16(entries.length),
+    u32(central.length),
+    u32(locals.length),
+    u16(0),
+  ])
 
-    // Font files
-    "font/otf": 0.9,
-    "font/ttf": 0.9,
-    "font/woff": 0.95,
-    "font/woff2": 0.95,
-
-    // Miscellaneous
-    "application/vnd.sqlite3": 0.7, // .sqlite3 (Database files)
-    "application/wasm": 0.8,        // .wasm (WebAssembly binary)
-    "application/x-msdownload": 0.75, // .exe, .dll
-
-    // General categories (Fallback)
-    "image": 0.95,
-    "video": 0.98,
-    "audio": 0.98,
-    "application": 0.7,
-    "text": 0.3,
-    "default": 0.6
-};
+  const blob = new Blob([locals, central, eocd], { type: 'application/zip' })
+  return new File([blob], zipName, { type: 'application/zip' })
+}
 
 export function estimateZipSize(files: File[]): number {
-    let estimatedSize = 0;
-
-    files.forEach(file => {
-        const mimeType = file.type || "default";
-        const fileSize = file.size;
-
-        // Determine compression ratio based on MIME type or broader type
-        const compressionRatio = COMPRESSION_RATIOS[mimeType] ||
-            COMPRESSION_RATIOS[mimeType.split("/")[0]] ||
-            COMPRESSION_RATIOS["default"];
-
-        // Estimate compressed file size
-        estimatedSize += fileSize * compressionRatio;
-    });
-
-    return Math.round(estimatedSize);
+  const encoder = new TextEncoder()
+  let total = 22
+  for (let i = 0; i < files.length; i++) {
+    const f: any = files[i] as any
+    const name = (f.webkitRelativePath || f.name) as string
+    const nameLen = encoder.encode(name).length
+    total += (f.size || 0) + 30 + 46 + (nameLen * 2)
+  }
+  return total
 }
 
-export function estimateZipSizeFromMetadata(files: Pick<FileMetadata, 'type' | 'size'>[]): number {
-    let estimatedSize = 0;
-    files.forEach(file => {
-        const mimeType = file.type || "default";
-        const fileSize = file.size;
-        const compressionRatio = COMPRESSION_RATIOS[mimeType] || COMPRESSION_RATIOS[mimeType.split("/")[0]] || COMPRESSION_RATIOS["default"];
-        estimatedSize += fileSize * compressionRatio;
-    });
-    return Math.round(estimatedSize);
-}
-
-export function streamSavedFolderToZip(files: Pick<FileMetadata, 'fileId' | 'relativePath'>[]): ReadableStream<Uint8Array> {
-    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-    (async () => {
-        try {
-            const zipWriter = new ZipWriter(writable);
-            for (const f of files) {
-                const stream = await createIndexedDBFileByteStream(f.fileId);
-                const name = f.relativePath || f.fileId;
-                await zipWriter.add(name, stream as any);
-            }
-            await zipWriter.close();
-        } catch (err) {
-            console.error("Error creating zip from saved folder:", err);
-            writable.getWriter().abort(err as any);
-        }
-    })();
-    return readable;
-}
-
-export async function zipSavedFolderToBlob(files: Pick<FileMetadata, 'fileId' | 'relativePath'>[]): Promise<Blob> {
-    const writer = new ZipWriter(new BlobWriter("application/zip"));
-    for (const f of files) {
-        const stream = await createIndexedDBFileByteStream(f.fileId);
-        const name = f.relativePath || f.fileId;
-        await writer.add(name, stream as any);
+export function streamFolderToZip(files: File[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  const now = new Date()
+  const { dosTime, dosDate } = toDosTime(now)
+  const centralParts: Uint8Array[] = []
+  let offset = 0
+  let index = 0
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      while (index < files.length) {
+        const f: any = files[index] as any
+        const name = (f.webkitRelativePath || f.name) as string
+        const nameBytes = encoder.encode(name)
+        const ab = new Uint8Array(await (files[index] as File).arrayBuffer())
+        const crc = crc32(ab)
+        const lfh = concat([
+          u32(0x04034b50),
+          u16(20),
+          u16(0),
+          u16(0),
+          u16(dosTime),
+          u16(dosDate),
+          u32(crc),
+          u32(ab.length),
+          u32(ab.length),
+          u16(nameBytes.length),
+          u16(0),
+          nameBytes,
+        ])
+        controller.enqueue(lfh)
+        controller.enqueue(ab)
+        const cdfh = concat([
+          u32(0x02014b50),
+          u16(20),
+          u16(20),
+          u16(0),
+          u16(0),
+          u16(dosTime),
+          u16(dosDate),
+          u32(crc),
+          u32(ab.length),
+          u32(ab.length),
+          u16(nameBytes.length),
+          u16(0),
+          u16(0),
+          u16(0),
+          u16(0),
+          u32(0),
+          u32(offset),
+          nameBytes,
+        ])
+        centralParts.push(cdfh)
+        offset += lfh.length + ab.length
+        index++
+        return
+      }
+      const central = concat(centralParts)
+      const eocd = concat([
+        u32(0x06054b50),
+        u16(0),
+        u16(0),
+        u16(centralParts.length),
+        u16(centralParts.length),
+        u32(central.length),
+        u32(offset),
+        u16(0),
+      ])
+      controller.enqueue(central)
+      controller.enqueue(eocd)
+      controller.close()
     }
-    const blob = await writer.close();
-    return blob as Blob;
+  })
+}
+
+export async function zipSavedFolderToBlob(items: { fileId: string, relativePath: string }[]): Promise<Blob> {
+  const { getFileMetadata, getChunksFromIndexedDB } = await import('./indexed-db')
+  const encoder = new TextEncoder()
+  const now = new Date()
+  const { dosTime, dosDate } = toDosTime(now)
+  const localParts: Uint8Array[] = []
+  const centralParts: Uint8Array[] = []
+  let offset = 0
+  for (let i = 0; i < items.length; i++) {
+    const meta = await getFileMetadata(items[i].fileId)
+    if (!meta) continue
+    const blob = await getChunksFromIndexedDB(items[i].fileId, meta.type)
+    const ab = new Uint8Array(await blob.arrayBuffer())
+    const name = items[i].relativePath || meta.name
+    const nameBytes = encoder.encode(name)
+    const crc = crc32(ab)
+    const lfh = concat([
+      u32(0x04034b50),
+      u16(20),
+      u16(0),
+      u16(0),
+      u16(dosTime),
+      u16(dosDate),
+      u32(crc),
+      u32(ab.length),
+      u32(ab.length),
+      u16(nameBytes.length),
+      u16(0),
+      nameBytes,
+    ])
+    localParts.push(lfh)
+    localParts.push(ab)
+    const cdfh = concat([
+      u32(0x02014b50),
+      u16(20),
+      u16(20),
+      u16(0),
+      u16(0),
+      u16(dosTime),
+      u16(dosDate),
+      u32(crc),
+      u32(ab.length),
+      u32(ab.length),
+      u16(nameBytes.length),
+      u16(0),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(0),
+      u32(offset),
+      nameBytes,
+    ])
+    centralParts.push(cdfh)
+    offset += lfh.length + ab.length
+  }
+  const central = concat(centralParts)
+  const locals = concat(localParts)
+  const eocd = concat([
+    u32(0x06054b50),
+    u16(0),
+    u16(0),
+    u16(centralParts.length),
+    u16(centralParts.length),
+    u32(central.length),
+    u32(locals.length),
+    u16(0),
+  ])
+  return new Blob([locals, central, eocd], { type: 'application/zip' })
 }

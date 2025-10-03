@@ -3,6 +3,7 @@ import { useAppContext } from './context/AppContext'
 import { useSocket } from './context/SocketContext'
 import { P2PProvider } from './context/P2PContext'
 import WelcomeLoading from './components/WelcomeLoading'
+const SharePage = React.lazy(() => import('./SharePage'))
 import Button from './components/Button'
 
 const Home = React.lazy(() => import('./Home'))
@@ -31,7 +32,35 @@ function App() {
     }
   }, [state.loaded])
 
-  const content = !state.loaded
+  const [routeTick, setRouteTick] = useState(0)
+  useEffect(() => {
+    const onChange = () => setRouteTick(v => v + 1)
+    window.addEventListener('hashchange', onChange)
+    window.addEventListener('popstate', onChange)
+    return () => {
+      window.removeEventListener('hashchange', onChange)
+      window.removeEventListener('popstate', onChange)
+    }
+  }, [])
+  const isShareRoute = (() => {
+    const p = window.location.pathname.toLowerCase()
+    if (p.includes('/receive/') || p.includes('/share/') || p.includes('/recieve/')) return true
+    const h = window.location.hash.toLowerCase()
+    if (h.includes('/receive/') || h.includes('/share/') || h.includes('/recieve/')) return true
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const mode = (params.get('mode') || '').toLowerCase()
+      const token = params.get('t') || params.get('token')
+      if ((mode === 'receive' || mode === 'share') && token) return true
+    } catch {}
+    return false
+  })()
+
+  const content = isShareRoute ? (
+    <Suspense fallback={<WelcomeLoading />}>
+      <SharePage />
+    </Suspense>
+  ) : (!state.loaded
     ? (
       (state.loading || state.token)
         ? <WelcomeLoading />
@@ -91,6 +120,7 @@ function App() {
         <Home />
       </Suspense>
     )
+  );
 
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full">

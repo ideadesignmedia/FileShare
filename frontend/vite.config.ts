@@ -9,6 +9,7 @@ export default defineConfig(({ command }) => {
   const isDev = command === 'serve'
   const base = isDev ? undefined : './'
   return {
+    appType: 'spa',
     optimizeDeps: {
       exclude: ['bson'],
       esbuildOptions: {

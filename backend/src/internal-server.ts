@@ -1,5 +1,6 @@
 import { AuthService } from './AuthService'
 import WebSocket, { WebSocketServer } from 'ws'
+import QRCode from 'qrcode'
 import { queMessage } from './external-server'
 import { ClientMessage, DevicesMessage, NameChangeMessage } from '../../shared/ClientMessageTypes'
 import { AuthResponseMessage, ConnectionMessage, DisconnectionMessage, NameChangeError, BroadcastMessage, BroadcastAllMessage } from '../../shared/ServerMessageTypes'
@@ -18,6 +19,25 @@ export const clientRequests = new Map<string, WebSocket>()
 export const authTimeouts = new Map<WebSocket, ReturnType<typeof setTimeout>>()
 const pingTimeouts = new Map<WebSocket, ReturnType<typeof setTimeout>>()
 export const userSockets = new Map<number, Map<string, WebSocket>>()
+type ShareSession = {
+    token: string,
+    passSalt: string,
+    passHash: string,
+    meta?: { files: { name: string, size: number, type: string }[] },
+    sender?: WebSocket,
+    guest?: WebSocket,
+    createdAt: number
+}
+
+const shareSessions = new Map<string, ShareSession>()
+const socketShares = new Map<WebSocket, Set<string>>()
+
+const genSalt = () => (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)).slice(0, 16)
+const passHash = (pass: string, salt: string) => {
+    const crypto = require('crypto') as typeof import('crypto')
+    return crypto.createHash('sha256').update(`${salt}:${pass}`).digest('hex')
+}
+
 export const startServer = () => {
     const wss = new WebSocketServer({ port: Number((() => {
         let port = parseInt(process.argv.slice(2)[0])
@@ -45,6 +65,20 @@ export const startServer = () => {
                 }
             }
             clients.delete(ws)
+            const shares = socketShares.get(ws)
+            if (shares) {
+                shares.forEach((token) => {
+                    const sess = shareSessions.get(token)
+                    if (sess) {
+                        if (sess.sender === ws) sess.sender = undefined
+                        if (sess.guest === ws) sess.guest = undefined
+                        if (!sess.sender && !sess.guest) {
+                            shareSessions.delete(token)
+                        }
+                    }
+                })
+                socketShares.delete(ws)
+            }
             const requests = Array.from(clientRequests.entries())
             for (let i = 0; i < requests.length; i++) {
                 if (requests[i][1] === ws) {
@@ -96,12 +130,133 @@ export const startServer = () => {
                 console.error('Invalid client')
                 return
             }
-            if (!userInfo.authorized && data.type !== 'auth') {
-                console.error('Unauthorized client')
-                ws.close()
-                return
+            if (!userInfo.authorized) {
+                if (data.type === 'auth' || data.type === 'ping' || data.type === 'pong' || data.type === 'share-guest-join') {
+                    // allowed unauth messages
+                } else if (data.type === 'share-signal') {
+                    // allow share-signal only if this ws belongs to an existing guest session
+                    const token = (data as any)?.data?.token
+                    const sess = token ? shareSessions.get(token) : undefined
+                    if (!sess || (sess.guest !== ws && sess.sender !== ws)) {
+                        console.error('Unauthorized client share-signal')
+                        ws.close()
+                        return
+                    }
+                } else if (data.type === 'qr-create') {
+                    console.error('Unauthorized client qr-create')
+                    ws.close()
+                    return
+                } else {
+                    console.error('Unauthorized client')
+                    ws.close()
+                    return
+                }
             }
             switch (data.type) {
+                case 'share-guest-join': {
+                    const { token, passcode } = (data as any).data || {}
+                    if (!token || typeof passcode !== 'string') {
+                        const error = { type: 'share-error', data: { error: 'Invalid share join' } }
+                        try { ws.send(JSON.stringify(error)) } catch {}
+                        return
+                    }
+                    const sess = shareSessions.get(token)
+                    if (!sess) {
+                        const err = { type: 'share-error', data: { token, error: 'Invalid or expired link' } }
+                        try { ws.send(JSON.stringify(err)) } catch {}
+                        return
+                    }
+                    const hash = passHash(passcode, sess.passSalt)
+                    if (hash !== sess.passHash) {
+                        const err = { type: 'share-error', data: { token, error: 'Incorrect passcode' } }
+                        try { ws.send(JSON.stringify(err)) } catch {}
+                        return
+                    }
+                    clearTimeout(authTimeouts.get(ws))
+                    authTimeouts.delete(ws)
+                    try { console.log('[WS][Share] guest-join accepted', token) } catch {}
+                    sess.guest = ws
+                    if (!socketShares.has(ws)) socketShares.set(ws, new Set())
+                    socketShares.get(ws)?.add(token)
+                    const accepted = { type: 'share-guest-accepted', data: { token, meta: sess.meta || { files: [] } } }
+                    try { ws.send(JSON.stringify(accepted)) } catch {}
+                    if (sess.sender) {
+                        try { sess.sender.send(JSON.stringify({ type: 'share-guest-connected', data: { token } })) } catch {}
+                    }
+                    break
+                }
+                case 'share-create': {
+                    if (!userInfo.authorized) {
+                        console.error('Unauthorized share-create')
+                        ws.close()
+                        return
+                    }
+                    const { token: providedToken, passcode, meta } = (data as any).data || {}
+                    const token = (providedToken && typeof providedToken === 'string') ? providedToken : (Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4))
+                    const salt = genSalt()
+                    const hash = passHash(passcode || '', salt)
+                    const sess: ShareSession = { token, passSalt: salt, passHash: hash, meta, createdAt: Date.now(), sender: ws }
+                    shareSessions.set(token, sess)
+                    if (!socketShares.has(ws)) socketShares.set(ws, new Set())
+                    socketShares.get(ws)?.add(token)
+                    try { console.log('[WS][Share] created', token) } catch {}
+                    const msg = { type: 'share-created', data: { token } }
+                    try { ws.send(JSON.stringify(msg)) } catch {}
+                    break
+                }
+                case 'share-signal': {
+                    const { token, payload } = (data as any).data || {}
+                    const sess = token ? shareSessions.get(token) : undefined
+                    if (!sess) {
+                        const err = { type: 'share-error', data: { token, error: 'Invalid session' } }
+                        try { ws.send(JSON.stringify(err)) } catch {}
+                        return
+                    }
+                    const target = (sess.sender === ws) ? sess.guest : (sess.guest === ws ? sess.sender : null)
+                    const from: 'sender' | 'guest' = (sess.sender === ws) ? 'sender' : 'guest'
+                    if (target && target.readyState === target.OPEN) {
+                        try { console.log('[WS][Share] signal', from, '->', (from === 'sender' ? 'guest' : 'sender'), (payload && payload.type) || 'unknown') } catch {}
+                        try { target.send(JSON.stringify({ type: 'share-signal', data: { token, from, payload } })) } catch {}
+                    }
+                    break
+                }
+                case 'share-status': {
+                    if (!userInfo.authorized) {
+                        ws.close()
+                        return
+                    }
+                    const token = (data as any)?.data?.token
+                    const sess = token ? shareSessions.get(token) : undefined
+                    const guest = Boolean(sess?.guest)
+                    try { console.log('[WS][Share] status', token, 'guest:', guest) } catch {}
+                    try { ws.send(JSON.stringify({ type: 'share-status', data: { token, guest } })) } catch {}
+                    break
+                }
+                case 'qr-create': {
+                    if (!userInfo.authorized) {
+                        console.error('Unauthorized qr-create')
+                        ws.close()
+                        return
+                    }
+                    const { requestId, text } = (data as any).data || {}
+                    if (!requestId || typeof text !== 'string') return
+                    QRCode.toDataURL(text, { margin: 1, width: 256 }).then((dataUrl) => {
+                        try { ws.send(JSON.stringify({ type: 'qr-created', data: { requestId, dataUrl } })) } catch {}
+                    }).catch(() => {
+                        try { ws.send(JSON.stringify({ type: 'qr-created', data: { requestId, dataUrl: '' } })) } catch {}
+                    })
+                    break
+                }
+                case 'share-close': {
+                    const { token } = (data as any).data || {}
+                    const sess = token ? shareSessions.get(token) : undefined
+                    if (sess) {
+                        if (sess.sender && sess.sender !== ws) try { sess.sender.send(JSON.stringify({ type: 'share-error', data: { token, error: 'closed' } })) } catch {}
+                        if (sess.guest && sess.guest !== ws) try { sess.guest.send(JSON.stringify({ type: 'share-error', data: { token, error: 'closed' } })) } catch {}
+                        shareSessions.delete(token)
+                    }
+                    break
+                }
                 case 'auth': {
                     const auth = data.data
                     if (!auth || !auth.deviceId || (!auth.token && (!auth.username || !auth.password))) {
